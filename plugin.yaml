@@ -1,18 +1,58 @@
-name: omnihermes
+name: presence-gate
 version: "1.0.0"
-title: "Omnihermes: Biometric Presence & Face-Verified Security Gate"
-description: "Local on-device biometric presence and face-verified authorization gate for Hermes Agent. Intercepts high-risk actions (payments, shell commands, messaging, data deletion) and requires webcam liveness and face matching before execution."
-author: "FaceTrust AI"
-license: "Apache-2.0"
+title: "Presence Gate: Biometric Presence & Face-Verified Security Gate"
+description: "On-device biometric presence and face-verified authorization gate for Hermes Agent. Intercepts high-risk actions (terminal commands, file changes outside project, sensitive MCP actions) and enforces webcam liveness and face recognition before execution."
+author: "Elijah & Community Contributors"
+license: "MIT"
 category: "security"
-provides_tools:
-  - omnihermes_status
-  - omnihermes_enroll
-  - omnihermes_configure
-  - omnihermes_audit_logs
-provides_hooks:
-  - pre_tool_call
 requires_hermes: ">=0.8.0"
 entrypoint: "__init__.py"
+
+python_dependencies:
+  - "opencv-python>=4.8,<5.1"
+  - "mediapipe>=0.10,<1.3"
+  - "cryptography>=42,<47"
+
+provides_tools:
+  - presence_status
+  - presence_enroll
+  - presence_configure
+  - presence_audit_logs
+  - presence_unlock
+
+provides_hooks:
+  - pre_tool_call
+
+config_schema:
+  type: object
+  properties:
+    enabled:
+      type: boolean
+      default: true
+      description: "Enable or disable biometric gate enforcement."
+    mode:
+      type: string
+      enum: ["strict", "cached_presence"]
+      default: "strict"
+      description: "'strict' prompts every time; 'cached_presence' caches approval while presence is active."
+    unlock_window_seconds:
+      type: integer
+      default: 120
+      description: "Duration of temporary execution window granted by /presence unlock."
+    away_timeout_seconds:
+      type: integer
+      default: 45
+      description: "Inactivity seconds before owner is marked AWAY and actions paused."
+    guarded_tools:
+      type: array
+      items:
+        type: string
+      default: ["terminal", "delegate_task"]
+      description: "List of tools that trigger biometric authorization."
+  secrets:
+    PRESENCE_ENCRYPTION_KEY:
+      type: string
+      description: "Optional 256-bit AES key for profile encryption. Generated locally if omitted."
+
 desktop:
   plugin: "desktop/plugin.js"

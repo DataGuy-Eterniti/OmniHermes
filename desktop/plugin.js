@@ -1,44 +1,48 @@
 /**
- * Omnihermes — Desktop UI Plugin Extension
+ * Presence Gate — Desktop UI Plugin Extension
  *
  * Adds a real-time biometric security widget and presence indicator
  * to the Hermes Desktop status bar and command palette.
+ * Strictly uses official Hermes Plugin SDK APIs.
  */
 
 export default function activate(context) {
   // 1. Create Status Bar Widget
   const statusBarItem = context.ui.createStatusBarItem({
-    id: 'omnihermes-presence-indicator',
+    id: 'presence-gate-indicator',
     alignment: 'right',
     priority: 100,
   });
 
-  statusBarItem.text = '🛡️ Omnihermes: Active';
-  statusBarItem.tooltip = 'Omnihermes Biometric Presence Gate: Monitoring';
-  statusBarItem.command = 'omnihermes.showStatus';
+  statusBarItem.text = '🛡️ Presence: Active';
+  statusBarItem.tooltip = 'Presence Gate: Biometric Monitoring Active';
+  statusBarItem.command = 'presence.showStatus';
   statusBarItem.show();
 
   // 2. Register Desktop Commands
-  context.commands.registerCommand('omnihermes.showStatus', async () => {
+  context.commands.registerCommand('presence.showStatus', async () => {
     try {
-      const status = await context.agent.callTool('omnihermes_status', {});
+      const status = await context.agent.callTool('presence_status', {});
+      const owner = status.owner_info?.owner_name || 'Not Enrolled';
       const presenceText = status.presence?.status === 'AWAY' ? '🔴 Away (Locked)' : '🟢 Present';
+      const chainValid = status.audit_chain?.valid ? 'Verified (Tamper-Free)' : 'Invalid';
+
       context.ui.showInformationMessage(
-        `Omnihermes Security Gate\n` +
-        `• Owner: ${status.owner_name || 'Not Enrolled'}\n` +
+        `Presence Gate Status\n` +
+        `• Owner: ${owner}\n` +
         `• Status: ${status.status.toUpperCase()}\n` +
         `• Presence: ${presenceText}\n` +
-        `• Audit Chain: ${status.audit_chain?.valid ? 'Verified (Tamper-Free)' : 'Invalid'}`
+        `• Audit Chain: ${chainValid}`
       );
     } catch (err) {
-      context.ui.showErrorMessage(`Failed to query Omnihermes: ${err.message}`);
+      context.ui.showErrorMessage(`Failed to query Presence Gate: ${err.message}`);
     }
   });
 
-  context.commands.registerCommand('omnihermes.viewAuditLogs', async () => {
+  context.commands.registerCommand('presence.viewAuditLogs', async () => {
     try {
-      const logs = await context.agent.callTool('omnihermes_audit_logs', { limit: 15, verify_chain: true });
-      context.ui.showOutputChannel('Omnihermes Audit Log', JSON.stringify(logs, null, 2));
+      const logs = await context.agent.callTool('presence_audit_logs', { limit: 15, verify_chain: true });
+      context.ui.showOutputChannel('Presence Gate Audit Log', JSON.stringify(logs, null, 2));
     } catch (err) {
       context.ui.showErrorMessage(`Failed to fetch audit log: ${err.message}`);
     }
@@ -47,12 +51,12 @@ export default function activate(context) {
   // 3. Periodic presence ping
   const interval = setInterval(async () => {
     try {
-      const status = await context.agent.callTool('omnihermes_status', {});
+      const status = await context.agent.callTool('presence_status', {});
       if (status.presence?.status === 'AWAY') {
-        statusBarItem.text = '🔒 Omnihermes: Away (Locked)';
+        statusBarItem.text = '🔒 Presence: Away (Locked)';
         statusBarItem.color = '#F43F5E';
       } else {
-        statusBarItem.text = '🛡️ Omnihermes: Protected';
+        statusBarItem.text = '🛡️ Presence: Protected';
         statusBarItem.color = '#10B981';
       }
     } catch (_) {

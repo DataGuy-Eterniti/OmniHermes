@@ -45,3 +45,4 @@ class PresenceMonitor:
             "timeout_threshold_seconds": self.timeout_seconds,
             "verified_user": self._last_verified_user,
         }
+

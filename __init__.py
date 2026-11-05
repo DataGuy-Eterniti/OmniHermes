@@ -1,155 +1,264 @@
-"""Omnihermes: Biometric Presence & Face-Verified Security Gate for Hermes Agent.
+"""Presence Gate: On-Device Biometric Presence & Face-Verified Security Gate.
 
-Provides on-device biometric presence and face-verified authorization for high-risk actions.
-Intercepts guarded tools via the `pre_tool_call` lifecycle hook.
+Intercepts high-risk operations via the `pre_tool_call` lifecycle hook.
+Fails closed on any error, missing camera, missing enrollment, headless execution, or timeout.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any, Dict, Optional
 
 from schemas import (
+    PRESENCE_STATUS_SCHEMA,
+    PRESENCE_ENROLL_SCHEMA,
+    PRESENCE_CONFIGURE_SCHEMA,
+    PRESENCE_AUDIT_LOGS_SCHEMA,
+    PRESENCE_UNLOCK_SCHEMA,
+    # Backward compatibility
     OMNIHERMES_STATUS_SCHEMA,
     OMNIHERMES_ENROLL_SCHEMA,
     OMNIHERMES_CONFIGURE_SCHEMA,
     OMNIHERMES_AUDIT_LOGS_SCHEMA,
 )
 from tools import (
-    handle_omnihermes_status,
-    handle_omnihermes_enroll,
-    handle_omnihermes_configure,
-    handle_omnihermes_audit_logs,
+    handle_presence_status,
+    handle_presence_enroll,
+    handle_presence_configure,
+    handle_presence_audit_logs,
+    handle_presence_unlock,
     get_biometrics,
     get_policy,
     get_audit,
     get_presence,
+    get_unlock_manager,
 )
 from core.ui import BiometricAuthDialog
 
 
-def on_pre_tool_call(**kwargs) -> Optional[Dict[str, Any]]:
+def is_headless_or_gateway(kwargs: Dict[str, Any]) -> bool:
+    """Detect if running in a headless, cron, Telegram, or gateway environment."""
+    ctx = kwargs.get("context") or kwargs.get("ctx")
+    if ctx is not None:
+        if hasattr(ctx, "current_cron_execution") and ctx.current_cron_execution() is not None:
+            return True
+        if getattr(ctx, "is_headless", False):
+            return True
+        if getattr(ctx, "channel", "") in ["telegram", "discord", "slack", "gateway"]:
+            return True
+
+    if os.environ.get("HERMES_CRON") or os.environ.get("HERMES_HEADLESS"):
+        return True
+    if os.environ.get("HERMES_CHANNEL") in ["telegram", "discord", "slack", "gateway"]:
+        return True
+
+    # On POSIX, check DISPLAY
+    if os.name != "nt" and not os.environ.get("DISPLAY"):
+        return True
+
+    return False
+
+
+def on_pre_tool_call(**kwargs) -> Dict[str, Any]:
     """Intercept tool executions before they dispatch.
     
-    Evaluates risk and enforces physical biometric verification when necessary.
+    Fail-closed: Returns {"action": "block", ...} on any exception, missing camera,
+    missing enrollment, headless session, or decision timeout.
     """
-    tool_name = kwargs.get("tool_name", "")
-    arguments = kwargs.get("arguments", {})
+    try:
+        tool_name = kwargs.get("tool_name", "")
+        arguments = kwargs.get("arguments", {})
 
-    # Don't intercept Omnihermes management tools
-    if tool_name.startswith("omnihermes_"):
-        return {"action": "allow"}
+        # Never intercept our own management tools
+        if tool_name.startswith("presence_") or tool_name.startswith("omnihermes_"):
+            return {"action": "allow"}
 
-    policy = get_policy()
-    audit = get_audit()
-    presence = get_presence()
-    biometrics = get_biometrics()
+        policy = get_policy()
+        audit = get_audit()
+        presence = get_presence()
+        biometrics = get_biometrics()
+        unlock_mgr = get_unlock_manager()
 
-    risk_assessment = policy.assess_risk(tool_name, arguments)
-    if not risk_assessment["requires_biometric"]:
-        return {"action": "allow"}
+        risk_assessment = policy.assess_risk(tool_name, arguments)
+        if not risk_assessment["requires_biometric"]:
+            return {"action": "allow"}
 
-    risk_level = risk_assessment["risk_level"]
-    action_summary = f"{tool_name} with params: {json.dumps(arguments, ensure_ascii=False)[:200]}"
+        risk_level = risk_assessment["risk_level"]
+        action_summary = f"{tool_name} with params: {json.dumps(arguments, ensure_ascii=False)[:200]}"
 
-    # Check 1: Away detection
-    if presence.is_away():
-        audit.log_event(
-            event_type="INTERCEPT_BLOCKED",
+        # 1. Check if running under cron, gateway, or headless environment (no physical display)
+        if is_headless_or_gateway(kwargs):
+            audit.log_event(
+                event_type="INTERCEPT_BLOCKED",
+                user_name="System",
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result="REJECTED_NO_DISPLAY",
+                details={"reason": "Cron or headless environment"},
+            )
+            return {
+                "action": "block",
+                "message": "Presence: this action needs face verification at Elijah's computer.",
+            }
+
+        # 2. Check profile enrollment: fail-closed if no owner profile is enrolled
+        if not biometrics.is_enrolled():
+            audit.log_event(
+                event_type="INTERCEPT_BLOCKED",
+                user_name="Unenrolled",
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result="REJECTED_NO_PROFILE",
+                details={"risk_level": risk_level, "reason": "No enrolled biometric profile"},
+            )
+            return {
+                "action": "block",
+                "message": (
+                    f"Presence: action '{tool_name}' ({risk_level} Risk) requires face verification, "
+                    f"but no owner profile is enrolled. Please run 'python -m presence.enroll --name \"Elijah\" --primary' to enroll."
+                ),
+            }
+
+        # 3. Check active unlock grace window (ends early if owner is away)
+        if unlock_mgr.is_unlocked(is_away=presence.is_away()):
+            audit.log_event(
+                event_type="INTERCEPT_APPROVED_UNLOCKED",
+                user_name="PrimaryOwner",
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result="APPROVED_UNLOCKED",
+                similarity_score=1.0,
+                liveness_score=1.0,
+                details={"risk_level": risk_level, "remaining_seconds": unlock_mgr.get_remaining_seconds()},
+            )
+            return {"action": "allow"}
+
+        # 4. Desk away detection
+        if presence.is_away():
+            audit.log_event(
+                event_type="INTERCEPT_BLOCKED",
+                user_name="PrimaryOwner",
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result="REJECTED_AWAY",
+                details={"risk_level": risk_level, "reason": "Owner away from desk"},
+            )
+            return {
+                "action": "block",
+                "message": (
+                    f"Presence: action '{tool_name}' ({risk_level} Risk) was paused: "
+                    f"workstation owner is away. Biometric presence must be confirmed in person."
+                ),
+            }
+
+        # 5. Cached presence mode (if enabled and within grace window)
+        if policy.config.get("mode") == "cached_presence" and not presence.is_away():
+            audit.log_event(
+                event_type="INTERCEPT_APPROVED_CACHED",
+                user_name="PrimaryOwner",
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result="APPROVED_CACHED",
+                similarity_score=1.0,
+                liveness_score=1.0,
+                details={"risk_level": risk_level},
+            )
+            return {"action": "allow"}
+
+        # 6. Launch Biometric Challenge Dialog with strict internal timeout (22s < 25s)
+        dialog = BiometricAuthDialog(
             tool_name=tool_name,
             action_summary=action_summary,
-            result="REJECTED_AWAY",
-            confidence=0.0,
-            liveness_score=0.0,
-            details={"risk_level": risk_level, "reason": "Owner away from desk"},
+            risk_level=risk_level,
+            engine=biometrics,
+            timeout_seconds=22,
         )
+        auth_result = dialog.run_dialog()
+
+        if auth_result.get("approved"):
+            owner = auth_result.get("owner_name", "Elijah")
+            presence.mark_seen(user_name=owner)
+            audit.log_event(
+                event_type="INTERCEPT_APPROVED",
+                user_name=owner,
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result="APPROVED",
+                similarity_score=auth_result.get("confidence", 1.0),
+                liveness_score=auth_result.get("liveness_score", 1.0),
+                details={"risk_level": risk_level},
+            )
+            return {"action": "allow"}
+        else:
+            reason = auth_result.get("reason", "VERIFICATION_FAILED")
+            msg = auth_result.get("message", "Biometric verification failed.")
+
+            audit.log_event(
+                event_type="INTERCEPT_REJECTED",
+                user_name="Candidate",
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result=reason,
+                similarity_score=auth_result.get("confidence", 0.0),
+                liveness_score=auth_result.get("liveness_score", 0.0),
+                details={"risk_level": risk_level, "message": msg},
+            )
+
+            # If timed out, guide user to unlock flow
+            if reason == "TIMEOUT":
+                return {
+                    "action": "block",
+                    "message": "Presence: verify with /presence unlock, then ask me to retry.",
+                }
+
+            return {
+                "action": "block",
+                "message": f"Presence: face verification denied for '{tool_name}'. Reason: {msg}",
+            }
+
+    except Exception as e:
+        # Ultimate fail-closed catch-all
+        try:
+            get_audit().log_event(
+                event_type="INTERCEPT_EXCEPTION",
+                user_name="System",
+                tool_name=kwargs.get("tool_name", "unknown"),
+                action_summary="Exception in hook",
+                result="ERROR_BLOCKED",
+                details={"exception": str(e)},
+            )
+        except Exception:
+            pass
+
         return {
             "action": "block",
-            "message": (
-                f"🔒 [Omnihermes Intercept] Action '{tool_name}' ({risk_level} Risk) was paused: "
-                f"Owner is away from the workstation. Biometric presence must be confirmed in person."
-            ),
-        }
-
-    # Check 2: Profile enrollment
-    if not biometrics.is_enrolled():
-        audit.log_event(
-            event_type="INTERCEPT_BLOCKED",
-            tool_name=tool_name,
-            action_summary=action_summary,
-            result="REJECTED_NO_PROFILE",
-            confidence=0.0,
-            liveness_score=0.0,
-            details={"risk_level": risk_level, "reason": "No enrolled biometric profile"},
-        )
-        return {
-            "action": "block",
-            "message": (
-                f"🔒 [Omnihermes Intercept] Action '{tool_name}' ({risk_level} Risk) requires biometric approval, "
-                f"but no owner profile is enrolled. Please run 'omnihermes_enroll' first."
-            ),
-        }
-
-    # Check 3: Check cached presence mode (if enabled and within grace window)
-    if policy.config.get("mode") == "cached_presence" and not presence.is_away():
-        audit.log_event(
-            event_type="INTERCEPT_APPROVED_CACHED",
-            tool_name=tool_name,
-            action_summary=action_summary,
-            result="APPROVED_CACHED",
-            confidence=1.0,
-            liveness_score=1.0,
-            details={"risk_level": risk_level},
-        )
-        return {"action": "allow"}
-
-    # Check 4: Launch Biometric Challenge Dialog
-    dialog = BiometricAuthDialog(
-        tool_name=tool_name,
-        action_summary=action_summary,
-        risk_level=risk_level,
-        engine=biometrics,
-        timeout_seconds=20,
-    )
-    auth_result = dialog.run_dialog()
-
-    if auth_result.get("approved"):
-        presence.mark_seen(user_name=auth_result.get("owner_name", "Owner"))
-        audit.log_event(
-            event_type="INTERCEPT_APPROVED",
-            tool_name=tool_name,
-            action_summary=action_summary,
-            result="APPROVED",
-            confidence=auth_result.get("confidence", 1.0),
-            liveness_score=auth_result.get("liveness_score", 1.0),
-            details={"risk_level": risk_level},
-        )
-        return {"action": "allow"}
-    else:
-        reason = auth_result.get("reason", "VERIFICATION_FAILED")
-        msg = auth_result.get("message", "Biometric verification failed.")
-        audit.log_event(
-            event_type="INTERCEPT_REJECTED",
-            tool_name=tool_name,
-            action_summary=action_summary,
-            result=reason,
-            confidence=auth_result.get("confidence", 0.0),
-            liveness_score=auth_result.get("liveness_score", 0.0),
-            details={"risk_level": risk_level, "message": msg},
-        )
-        return {
-            "action": "block",
-            "message": f"🔒 [Omnihermes Intercept] Biometric approval denied for '{tool_name}'. Reason: {msg}",
+            "message": f"Presence: unexpected error during verification check ({str(e)}). Action blocked fail-closed.",
         }
 
 
-def register(ctx):
+def register(ctx: Any) -> None:
     """Hermes Agent plugin registration entrypoint."""
     # Register tool handlers and schemas
-    ctx.register_tool(OMNIHERMES_STATUS_SCHEMA, handle_omnihermes_status)
-    ctx.register_tool(OMNIHERMES_ENROLL_SCHEMA, handle_omnihermes_enroll)
-    ctx.register_tool(OMNIHERMES_CONFIGURE_SCHEMA, handle_omnihermes_configure)
-    ctx.register_tool(OMNIHERMES_AUDIT_LOGS_SCHEMA, handle_omnihermes_audit_logs)
+    ctx.register_tool(PRESENCE_STATUS_SCHEMA, handle_presence_status)
+    ctx.register_tool(PRESENCE_ENROLL_SCHEMA, handle_presence_enroll)
+    ctx.register_tool(PRESENCE_CONFIGURE_SCHEMA, handle_presence_configure)
+    ctx.register_tool(PRESENCE_AUDIT_LOGS_SCHEMA, handle_presence_audit_logs)
+    ctx.register_tool(PRESENCE_UNLOCK_SCHEMA, handle_presence_unlock)
 
-    # Register lifecycle pre_tool_call hook
+    # Backward compatibility
+    ctx.register_tool(OMNIHERMES_STATUS_SCHEMA, handle_presence_status)
+    ctx.register_tool(OMNIHERMES_ENROLL_SCHEMA, handle_presence_enroll)
+    ctx.register_tool(OMNIHERMES_CONFIGURE_SCHEMA, handle_presence_configure)
+    ctx.register_tool(OMNIHERMES_AUDIT_LOGS_SCHEMA, handle_presence_audit_logs)
+
+    # Register lifecycle hooks
     ctx.register_hook("pre_tool_call", on_pre_tool_call)
+
+    # Secret retrieval if secret_scope available
+    if hasattr(ctx, "agent") and hasattr(ctx.agent, "secret_scope"):
+        secret = ctx.agent.secret_scope.get_secret("PRESENCE_ENCRYPTION_KEY")
+        if secret:
+            from presence.crypto import get_or_generate_key
+            get_or_generate_key(explicit_key=secret)

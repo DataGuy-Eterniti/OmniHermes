@@ -1,11 +1,11 @@
-"""Tool schemas for Omnihermes.
+"""Tool schemas for Presence Gate.
 
-These JSON schemas define the tools exposed by Omnihermes to the Hermes LLM runtime.
+These schemas define the tools exposed by Presence Gate to the Hermes LLM runtime.
 """
 
-OMNIHERMES_STATUS_SCHEMA = {
-    "name": "omnihermes_status",
-    "description": "Check the status of the Omnihermes biometric security gate, including enrolled profile, presence status, policy configuration, and audit integrity.",
+PRESENCE_STATUS_SCHEMA = {
+    "name": "presence_status",
+    "description": "Check the status of the Presence Gate security gate, including enrolled profile, desk presence, policy configuration, and cryptographic audit integrity.",
     "parameters": {
         "type": "object",
         "properties": {},
@@ -13,28 +13,28 @@ OMNIHERMES_STATUS_SCHEMA = {
     },
 }
 
-OMNIHERMES_ENROLL_SCHEMA = {
-    "name": "omnihermes_enroll",
-    "description": "Enroll an owner's face for biometric authorization. Captures biometric embedding securely on-device with zero raw images stored.",
+PRESENCE_ENROLL_SCHEMA = {
+    "name": "presence_enroll",
+    "description": "Enroll an owner's face for biometric authorization. Captures biometric embeddings locally on-device with zero raw images stored.",
     "parameters": {
         "type": "object",
         "properties": {
             "owner_name": {
                 "type": "string",
-                "description": "Name or handle of the primary owner to enroll (e.g. 'Alice').",
+                "description": "Name of the primary workstation owner to enroll (e.g. 'Elijah').",
             },
-            "passphrase": {
-                "type": "string",
-                "description": "Optional user passphrase for hardware-bound AES-256 key derivation.",
+            "primary": {
+                "type": "boolean",
+                "description": "Whether this user is the primary workstation owner.",
             },
         },
         "required": ["owner_name"],
     },
 }
 
-OMNIHERMES_CONFIGURE_SCHEMA = {
-    "name": "omnihermes_configure",
-    "description": "Update Omnihermes security policy settings, such as guarded tools, mode, and away timeout.",
+PRESENCE_CONFIGURE_SCHEMA = {
+    "name": "presence_configure",
+    "description": "Update Presence Gate security policy settings, such as guarded tools, mode, and away timeout.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -45,7 +45,7 @@ OMNIHERMES_CONFIGURE_SCHEMA = {
             "mode": {
                 "type": "string",
                 "enum": ["strict", "cached_presence"],
-                "description": "'strict' prompts every time; 'cached_presence' caches approval while continuous presence is detected.",
+                "description": "'strict' prompts every time; 'cached_presence' allows actions while continuous presence is detected.",
             },
             "away_timeout_seconds": {
                 "type": "integer",
@@ -61,8 +61,8 @@ OMNIHERMES_CONFIGURE_SCHEMA = {
     },
 }
 
-OMNIHERMES_AUDIT_LOGS_SCHEMA = {
-    "name": "omnihermes_audit_logs",
+PRESENCE_AUDIT_LOGS_SCHEMA = {
+    "name": "presence_audit_logs",
     "description": "Retrieve recent biometric authorization audit logs and verify the cryptographic integrity of the SHA-256 chain.",
     "parameters": {
         "type": "object",
@@ -78,4 +78,37 @@ OMNIHERMES_AUDIT_LOGS_SCHEMA = {
         },
         "required": [],
     },
+}
+
+PRESENCE_UNLOCK_SCHEMA = {
+    "name": "presence_unlock",
+    "description": "Launch interactive face verification in a relaxed 5-minute window and grant a temporary execution window (default 2 mins) for high-risk operations.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "duration_seconds": {
+                "type": "integer",
+                "description": "Duration in seconds for the unlock window upon successful verification (default: 120s).",
+            },
+        },
+        "required": [],
+    },
+}
+
+# Backward compatibility aliases
+OMNIHERMES_STATUS_SCHEMA = {
+    **PRESENCE_STATUS_SCHEMA,
+    "name": "omnihermes_status",
+}
+OMNIHERMES_ENROLL_SCHEMA = {
+    **PRESENCE_ENROLL_SCHEMA,
+    "name": "omnihermes_enroll",
+}
+OMNIHERMES_CONFIGURE_SCHEMA = {
+    **PRESENCE_CONFIGURE_SCHEMA,
+    "name": "omnihermes_configure",
+}
+OMNIHERMES_AUDIT_LOGS_SCHEMA = {
+    **PRESENCE_AUDIT_LOGS_SCHEMA,
+    "name": "omnihermes_audit_logs",
 }

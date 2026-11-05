@@ -1,131 +1,150 @@
-# Omnihermes 🛡️👁️
+# Presence Gate 🛡️👁️
 
 > **On-Device Biometric Presence & Face-Verified Security Gate for Hermes Agent**  
 > *Developed for the Hermes Agent Plugin Hackathon by Nous Research*
 
 ---
 
-## 💡 The Problem
+## What is Presence Gate?
 
-Hermes agents can run shell commands, interact with production APIs, manage local files, and initiate financial transactions. However, traditional agent approval mechanisms rely on a simple text confirmation (`yes/no` prompt). This introduces severe security vulnerabilities:
-1. **Unattended Execution:** Anyone who sits at the keyboard can approve catastrophic actions while the owner is away.
-2. **Prompt Injection & Confusion:** Malicious instructions or prompt injection can mislead users into approving dangerous actions.
-3. **No Real Human Identity:** Standard agents cannot verify *who* is giving permission.
+Hermes agents can execute shell commands, alter system files, and call external MCP tools. Standard agent approval workflows rely entirely on text confirmation (`yes/no`). If you step away from your workstation or an indirect prompt injection hijacks your agent session, unauthorized actions can be executed without your awareness.
 
-**A prompt or a skill cannot fix this.** Enforcing human physical identity requires deep hardware access, video perception, anti-spoofing liveness verification, and intercepting the agent's core runtime loop.
-
----
-
-## 🚀 The Solution: Omnihermes
-
-**Omnihermes** is a native Hermes Agent plugin that intercepts high-risk operations via the `pre_tool_call` lifecycle hook and enforces real-time biometric authorization before the agent is allowed to execute them.
+**Presence Gate** is an on-device biometric security plugin that intercepts high-risk operations via the `pre_tool_call` lifecycle hook. Before a sensitive tool executes, Presence Gate requires real face recognition and multi-layer anti-spoofing verification via your local webcam.
 
 ```mermaid
 flowchart TD
-    A[Hermes Agent Loop] -->|Dispatches Tool Call| B(Omnihermes pre_tool_call Hook)
-    B --> C{Policy Engine: Assess Risk}
-    C -->|Low Risk e.g. web search| D[Allow & Execute]
-    C -->|High Risk e.g. payment, rm -rf| E{Away Detector}
-    E -->|Owner Away| F[🔒 Quarantine & Pause Action]
-    E -->|Owner Present| G[Launch Biometric Challenge Dialog]
-    G --> H{Anti-Spoofing Liveness Check}
-    H -->|Photo / Screen Spoof| I[✖ Reject Attack & Alert]
-    H -->|Live Human Blink Verified| J{Cosine Face Match}
-    J -->|Confidence >= 0.75| K[✔ Approve & Dispatch Tool]
-    J -->|Impostor Mismatch| L[✖ Reject Impostor]
-    F & I & K & L --> M[(Tamper-Evident SHA-256 Audit Log)]
+    A[Hermes Agent Loop] -->|Tool Execution Requested| B(Presence Gate pre_tool_call Hook)
+    B --> C{Policy Risk Assessment}
+    C -->|Low Risk e.g. read_file in workspace| D[Allow & Execute]
+    C -->|High Risk e.g. terminal dangerous commands| E{Active Unlock Window?}
+    E -->|Valid Grace Period & Present| D
+    E -->|No Unlock or Away| F{Environment Check}
+    F -->|Headless / Cron / Gateway| G[🔒 Block: Headless Session]
+    F -->|Desktop / Display Available| H[Biometric Challenge Dialog]
+    H --> I{Passive MiniFASNet Anti-Spoof}
+    I -->|Moiré / Paper / Texture Fake| J[✖ Reject Presentation Spoof]
+    I -->|Genuine Face Texture| K{Active Liveness: Blink + Parallax}
+    K -->|Static Photo / Flat Rotation| L[✖ Reject Spoof]
+    K -->|Blink & Parallax Shift Passed| M{SFace Identity Match}
+    M -->|Cosine Similarity >= 0.3630| N[✔ Approve & Run Tool]
+    M -->|Impostor Mismatch| O[✖ Reject Impostor]
+    G & J & L & N & O --> P[(Cryptographic SHA-256 Audit Log)]
 ```
 
 ---
 
-## ✨ Key Features
+## Guarded Operations & Real Hermes Targets
 
-- **🔍 Hardware-Bound Biometric Interception:** Intercepts sensitive tools (payments, shell commands, messaging, database operations) before they hit the execution registry.
-- **👁️ Anti-Spoofing Liveness Detection:** Dual-phase validation defeats static photo printouts, screen video replays, and deepfakes via dynamic eye-blink verification (Eye Aspect Ratio dip) and micro-motion texture entropy analysis.
-- **🔐 Zero-Knowledge Biometric Privacy:** **Zero raw face images are stored on disk.** Facial embeddings are encrypted with AES-256-GCM using hardware-derived keys via PBKDF2-HMAC-SHA256.
-- **☕ Desk Away-Detection:** Continuously tracks presence. If the owner walks away from the desk for more than the configurable timeout (default 45s), high-risk operations are automatically quarantined.
-- **📜 Tamper-Evident Audit Chain:** Every single authorization, rejection, spoof attempt, and config change is chained using SHA-256 block hashes, ensuring cryptographically verifiable auditability.
-- **🖥️ Hermes Desktop Integration:** Native status bar widget and command palette actions to monitor security posture in real-time.
+Presence Gate enforces verification on real built-in Hermes tools and sensitive MCP tools:
 
----
+1. **`terminal`**: Commands matching dangerous patterns:
+   - Destructive deletion: `rm -rf`, `del /s`, `del /f`, `rmdir /s`
+   - Remote script execution: `curl ... | sh`, `curl ... | bash`, `wget ... | bash`
+   - Escalated privileges: `sudo`, `doas`
+   - Disk formatting: `format c:`, `mkfs`
+   - Unsafe publication: `npm publish`, `git push --force`
+2. **`write_file` & `patch`**: Any file modifications targeting paths located outside the current project root directory.
+3. **`delegate_task`**: Any delegation to autonomous subagents.
+4. **Sensitive MCP Tools**: Any tool call whose name matches sensitive financial or administrative verbs (`pay`, `charge`, `transfer`, `refund`, `delete`, `send`).
 
-## 📦 Project Structure
-
-```text
-omnihermes/
-├── plugin.yaml                  # Hermes plugin manifest
-├── plugin-catalog/
-│   └── omnihermes.yaml          # Official Hermes marketplace catalog entry
-├── __init__.py                  # Plugin entrypoint & pre_tool_call hook
-├── schemas.py                   # Tool definitions exposed to LLM
-├── tools.py                     # Tool implementations
-├── core/
-│   ├── biometrics.py            # Face embedding, cosine similarity & liveness engine
-│   ├── crypto.py                # AES-256-GCM encryption for embeddings
-│   ├── policy.py                # Rule engine & risk assessment
-│   ├── away.py                  # Inactivity & away state tracker
-│   ├── audit.py                 # SHA-256 hash-chained audit logger
-│   └── ui.py                    # Tkinter camera authorization modal
-├── desktop/
-│   └── plugin.js                # Hermes Desktop status bar & menu integration
-├── tests/                       # Complete automated unit test suite (15 tests)
-└── demo/
-    └── run_demo.py              # Interactive 90-second demo script
-```
+All benign read operations (e.g. `read_file`, internal project searches) pass through instantly without interruption.
 
 ---
 
-## 🛠️ Installation & Setup
+## Multi-Layer Biometric Pipeline
+
+To defeat static photos, smartphone screen replays, and rotated flat photos, Presence Gate combines passive neural anti-spoofing with active behavioral challenges:
+
+1. **Passive Anti-Spoofing (MiniFASNetV2-SE):**
+   - Evaluates face crops across $\ge 10$ frames using OpenCV DNN.
+   - Detects screen moiré patterns, print texture artifacts, and spectral reflections.
+   - Rejects the verification if $\ge 2$ frames are flagged as spoof or if average real confidence is $< 0.60$.
+2. **Active Two-Challenge Liveness:**
+   - **Challenge 1 (Mandatory):** `blink_twice` — monitors Eye Aspect Ratio (EAR) dip ($< 0.21$) and recovery ($> 0.26$). Flat photos and phone stills cannot blink.
+   - **Challenge 2 (Randomized Pose + Parallax):** Randomly selects `turn_left`, `turn_right`, `nod_down`, or `nod_up`. A **parallax consistency check** tracks relative nose-to-cheek displacement $R(t) = \frac{x_{\text{nose}} - x_{\text{right}}}{x_{\text{left}} - x_{\text{right}}}$. A real human turning exhibits parallax shift $\Delta R \ge 0.05$. A rotated flat photo maintains planar proportions ($\Delta R < 0.01$) and is rejected.
+3. **SFace 128-d Embedding Verification:**
+   - Compares face embedding against the owner profile using cosine similarity.
+   - Requires similarity $\ge 0.3630$ (OpenCV SFace recommended threshold).
+4. **Evidence-Based Scoring:**
+   - Composite liveness score is strictly derived from measured physical metrics:
+     $$\text{Liveness} = 0.50 \times \text{MiniFASNet} + 0.30 \times \text{Blink} + 0.20 \times \text{Parallax}$$
+   - No hard-coded or mock values.
+
+---
+
+## Timing & Fail-Closed Execution
+
+- **In-Hook Timeout (22 seconds):** Hermes automatically skips hooks that exceed 30 seconds. To prevent unintended tool execution, Presence Gate limits the interactive hook dialog to 22 seconds. If time expires, the hook returns `{"action": "block"}` with clear instructions:
+  > `"Presence: verify with /presence unlock, then ask me to retry."`
+- **Interactive Unlock Window (`/presence unlock` / `python -m presence.unlock`):**
+  - Allows an extended **5-minute (300s)** window with a visible on-screen HUD countdown.
+  - Upon successful verification, grants a **120-second execution grace period** so the agent can execute multi-step sensitive tasks without repeated prompts.
+  - **Away Revocation:** If the background desk presence monitor detects that you stepped away (`STATUS: AWAY`), the unlock window is **instantly revoked**.
+- **Automated / Headless Guard:** In headless environments, cron jobs, or gateway server sessions where no display is available, Presence Gate immediately blocks sensitive operations fail-closed.
+
+---
+
+## Getting Started
 
 ### 1. Requirements
 - Python 3.10+
-- Webcam (or headless mock mode)
-- Dependencies:
-```bash
-pip install -r requirements.txt
-```
+- A connected webcam
+- Dependencies (all pure Python wheels and lightweight binaries):
+  ```bash
+  pip install -r requirements.txt
+  ```
 
-### 2. Validate Plugin
-Test your local plugin using the Hermes CLI:
+### 2. Enroll the Primary Workstation Owner
+Enroll yourself as the primary owner:
 ```bash
-hermes plugins validate . --install-deps
+python -m presence.enroll --name "Elijah" --primary
 ```
+The camera window will open, present the dual liveness challenges, capture 5 verified frames, average the SFace embeddings, encrypt them using AES-256-GCM, and save your profile locally.
 
-### 3. Enroll Owner Biometrics
-Enroll the authorized workstation owner:
+### 3. Verify Your Setup
+Run the diagnostic verification tool:
 ```bash
-# Via Hermes CLI or Agent prompt:
-"Enroll owner Alice with Omnihermes"
+python -m presence.verify
 ```
+For detailed instructions on testing yourself, an impostor, printed photos, or a covered camera, see [TESTING.md](TESTING.md).
 
 ---
 
-## 🧪 Running Unit Tests
+## Configuration
 
-Omnihermes includes 15 automated unit tests covering encryption, tamper detection, spoof rejection, and hook interception:
+Settings can be managed via the `presence_configure` tool or by editing `config.json` in the plugin data directory:
 
-```bash
-python -m unittest discover tests -v
-```
-
----
-
-## 🎥 90-Second Demo Script
-
-To reproduce the hackathon demo flow:
-```bash
-python demo/run_demo.py
-```
-
-### Demo Steps (<90 seconds):
-1. **0:00 - 0:15:** Owner Alice enrolled; embeddings encrypted on-device.
-2. **0:15 - 0:30:** Agent asked to execute payment of $49; biometric gate triggers camera challenge; blink + face match authorizes payment.
-3. **0:30 - 0:45:** Impostor attempts crypto transfer -> Rejected (Confidence: 31%).
-4. **0:45 - 0:60:** Attacker holds up printed glossy photo -> Anti-spoofing flags zero micro-motion -> Spoof rejected.
-5. **0:60 - 0:75:** Alice walks away -> Away detector quarantines dangerous shell actions automatically.
-6. **0:75 - 0:90:** Cryptographic audit verification verifies 100% chain integrity.
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | boolean | `true` | Enable or disable gate enforcement. |
+| `mode` | string | `"strict"` | `"strict"` prompts for each high-risk tool; `"cached_presence"` allows executions while continuous presence is active. |
+| `min_match_confidence` | float | `0.363` | OpenCV SFace cosine similarity threshold. |
+| `min_liveness_score` | float | `0.80` | Required liveness confidence score. |
+| `away_timeout_seconds` | integer | `45` | Seconds without face detection before marking status as AWAY. |
+| `guarded_tools` | list | `["terminal", "delegate_task"]` | Tools requiring biometric verification. |
 
 ---
 
-## 📄 License
-Apache-2.0. Built by FaceTrust AI for the Hermes Agent Community.
+## Limitations
+
+- **Anti-Spoofing Scope:** Presence Gate is designed to defeat static printed photos, screen replays, and planar rotation attacks. It is not an ISO/IEC 30107-3 certified biometric presentation attack detection system.
+- **Lighting & Camera Quality:** Severe underexposure or poor camera resolution can increase false rejection rates.
+- **Hardware Variation:** Camera field-of-view and optical distortion may affect landmark coordinates slightly; default thresholds are calibrated for standard 720p/1080p webcams.
+
+---
+
+## Disclosures
+
+- **Webcam Access:** Presence Gate accesses your webcam device solely to detect faces, evaluate active challenges, and verify facial similarity. The video stream is processed in real time in volatile memory.
+- **Local-Only Processing:** No images or video frames are ever uploaded to cloud servers or transmitted over the network.
+- **Model Download Sources & Checksums:** Vision models are downloaded on first run from official repositories and verified against hard-coded SHA-256 checksums before loading:
+  - YuNet (`face_detection_yunet_2023mar.onnx`): `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4` (~232 KB, OpenCV Zoo)
+  - SFace (`face_recognition_sface_2021dec.onnx`): `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79` (~38.7 MB, OpenCV Zoo)
+  - MediaPipe Face Landmarker (`face_landmarker.task`): `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff` (~3.8 MB, Google Cloud Storage)
+  - MiniFASNetV2-SE (`face_antispoof_minifasnet.onnx`): `af2381b88f38769222ed93379e12444e2a50814575de1c46170de570c55a42b6` (~1.9 MB, Apache-2.0 via facenox/face-antispoof-onnx)
+  - **Total model footprint:** ~44.6 MB.
+- **Background Presence Tracking:** When enabled, the desk presence monitor periodically checks for human presence to detect when the workstation is unattended.
+- **What is Stored & Where:**
+  - Enrolled Profile (`profile.enc`): Stores 128-dimensional numerical float vectors encrypted with AES-256-GCM. **Zero raw facial photographs are saved on disk.**
+  - Audit Trail (`audit.jsonl`): Cryptographically chained with SHA-256 block hashes, logging timestamps, tool names, similarity scores, and verification outcomes.
+  - Storage Location: Saved locally in your user profile directory (`~/.hermes/presence-gate/` or `.data/`).

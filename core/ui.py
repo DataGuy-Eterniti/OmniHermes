@@ -1,14 +1,14 @@
-"""Biometric Authorization Dialog for Omnihermes.
+"""Biometric Authorization Dialog for Presence Gate.
 
-Displays a modern security modal with live webcam feedback, liveness challenge,
+Displays a security modal with live webcam feedback, active liveness challenge,
 and biometric authorization prompt when high-risk actions are intercepted.
 """
 
 from __future__ import annotations
 
-import threading
+import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import cv2
 import numpy as np
@@ -16,64 +16,80 @@ from PIL import Image, ImageTk
 
 try:
     import tkinter as tk
-    from tkinter import ttk
 except ImportError:
-    tk = None  # type: ignore
+    tk = None
+
+from presence.biometrics import BiometricEngine
+from presence.liveness import LivenessSession
 
 
 class BiometricAuthDialog:
-    """Tkinter-based verification window with camera feed and liveness feedback."""
+    """Tkinter-based verification window with camera feed and active liveness challenge."""
 
     def __init__(
         self,
         tool_name: str,
         action_summary: str,
         risk_level: str,
-        engine: Any,
-        timeout_seconds: int = 25,
+        engine: BiometricEngine,
+        timeout_seconds: int = 18,
+        camera_index: int = 0,
     ):
         self.tool_name = tool_name
         self.action_summary = action_summary
         self.risk_level = risk_level
         self.engine = engine
-        self.timeout_seconds = timeout_seconds
+        self.timeout_seconds = min(timeout_seconds, 24)  # Strictly under 25s for Hermes hook safety
+        self.camera_index = camera_index
 
         self.result: Dict[str, Any] = {
             "approved": False,
             "reason": "TIMEOUT",
+            "message": "Biometric authorization timed out.",
             "confidence": 0.0,
             "liveness_score": 0.0,
         }
-        self._camera_index = 0
         self._running = False
         self._start_time = 0.0
 
     def run_dialog(self) -> Dict[str, Any]:
         """Launch the authorization dialog. Blocks until approved, rejected, or timed out."""
-        if tk is None:
-            # Fallback for environments without Tkinter
+        # Fail closed immediately if no display environment (e.g. gateway/headless/cron/SSH)
+        if tk is None or not os.environ.get("DISPLAY", "") and os.name != "nt":
             return {
                 "approved": False,
-                "reason": "NO_GUI_ENVIRONMENT",
-                "message": "GUI display unavailable for biometric challenge.",
+                "reason": "HEADLESS_OR_NO_DISPLAY",
+                "message": "Presence: this action needs face verification at Elijah's computer.",
                 "confidence": 0.0,
                 "liveness_score": 0.0,
             }
 
-        root = tk.Tk()
-        root.title("Omnihermes — Biometric Security Gate")
+        try:
+            root = tk.Tk()
+        except Exception:
+            return {
+                "approved": False,
+                "reason": "NO_DISPLAY_FOUND",
+                "message": "Presence: this action needs face verification at Elijah's computer.",
+                "confidence": 0.0,
+                "liveness_score": 0.0,
+            }
+
+        root.title("Presence Gate — Security Authorization")
         root.geometry("520x640")
         root.resizable(False, False)
-        root.configure(bg="#0F172A")  # Modern slate dark theme
+        root.configure(bg="#0F172A")
 
-        # Top banner
+        owner_info = self.engine.get_owner_info() or {}
+        owner_name = owner_info.get("owner_name", "Elijah")
+
         header_frame = tk.Frame(root, bg="#1E293B", padx=16, pady=12)
         header_frame.pack(fill=tk.X)
 
         title_lbl = tk.Label(
             header_frame,
-            text=f"🛡️ BIOMETRIC AUTHORIZATION REQUIRED",
-            font=("Segoe UI", 12, "bold"),
+            text="🛡️ PRESENCE GATE: AUTHORIZATION REQUIRED",
+            font=("Segoe UI", 11, "bold"),
             fg="#F43F5E" if self.risk_level == "CRITICAL" else "#F59E0B",
             bg="#1E293B",
         )
@@ -81,14 +97,13 @@ class BiometricAuthDialog:
 
         risk_lbl = tk.Label(
             header_frame,
-            text=f"Risk Level: {self.risk_level}  |  Tool: {self.tool_name}",
+            text=f"Target: {self.tool_name}  |  Owner: {owner_name} (Primary)",
             font=("Segoe UI", 9),
             fg="#94A3B8",
             bg="#1E293B",
         )
         risk_lbl.pack(anchor="w", pady=(2, 0))
 
-        # Action description box
         action_frame = tk.Frame(root, bg="#1E293B", padx=12, pady=10)
         action_frame.pack(fill=tk.X, padx=16, pady=10)
 
@@ -103,12 +118,10 @@ class BiometricAuthDialog:
         )
         action_lbl.pack(anchor="w")
 
-        # Camera viewport
         video_canvas = tk.Label(root, bg="#000000", width=480, height=320)
         video_canvas.pack(padx=16, pady=4)
 
-        # Status & Instructions
-        status_var = tk.StringVar(value="Align your face and blink naturally to authorize...")
+        status_var = tk.StringVar(value="Initializing camera and liveness engine...")
         status_lbl = tk.Label(
             root,
             textvariable=status_var,
@@ -119,7 +132,6 @@ class BiometricAuthDialog:
         )
         status_lbl.pack(pady=8)
 
-        # Progress / Timeout bar
         countdown_var = tk.StringVar(value=f"Expires in {self.timeout_seconds}s")
         countdown_lbl = tk.Label(
             root,
@@ -130,12 +142,11 @@ class BiometricAuthDialog:
         )
         countdown_lbl.pack()
 
-        # Reject / Cancel button
         def on_cancel():
             self.result = {
                 "approved": False,
                 "reason": "USER_REJECTED",
-                "message": "User manually declined biometric authorization.",
+                "message": "Action was manually rejected by the workstation owner.",
                 "confidence": 0.0,
                 "liveness_score": 0.0,
             }
@@ -158,12 +169,21 @@ class BiometricAuthDialog:
         )
         cancel_btn.pack(side=tk.RIGHT)
 
-        # OpenCV Video Loop
-        cap = cv2.VideoCapture(self._camera_index)
+        # Open Webcam
+        cap = cv2.VideoCapture(self.camera_index)
+        if not cap.isOpened():
+            root.destroy()
+            return {
+                "approved": False,
+                "reason": "CAMERA_UNAVAILABLE",
+                "message": "Presence Gate: Could not open camera device. Action blocked.",
+                "confidence": 0.0,
+                "liveness_score": 0.0,
+            }
+
+        liveness_session = LivenessSession(data_dir=self.engine.data_dir)
         self._start_time = time.time()
         self._running = True
-
-        ear_history = []
 
         def update_frame():
             if not self._running or not root.winfo_exists():
@@ -176,7 +196,7 @@ class BiometricAuthDialog:
                 self.result = {
                     "approved": False,
                     "reason": "TIMEOUT",
-                    "message": "Biometric authorization timed out.",
+                    "message": f"Presence verification timed out ({self.timeout_seconds}s limit). Action blocked.",
                     "confidence": 0.0,
                     "liveness_score": 0.0,
                 }
@@ -187,60 +207,47 @@ class BiometricAuthDialog:
             countdown_var.set(f"Expires in {remaining}s")
 
             ret, frame = cap.read()
-            if ret:
-                # Mirror camera for natural feel
+            if ret and frame is not None:
                 frame = cv2.flip(frame, 1)
+                faces = self.engine.detect_faces(frame)
+                live_res = liveness_session.process_frame(frame)
 
-                # Convert to grayscale for Haar face detection
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                face_cascade = cv2.CascadeClassifier(
-                    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-                )
-                faces = face_cascade.detectMultiScale(gray, 1.2, 5, minSize=(100, 100))
+                current_sim = 0.0
+                face_matched = False
 
-                for (x, y, w, h) in faces:
-                    # Draw futuristic scanning HUD
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 128), 2)
-                    cv2.putText(
-                        frame,
-                        "OMNIHERMES VERIFYING",
-                        (x, max(20, y - 10)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 255, 128),
-                        1,
-                    )
+                if len(faces) == 0:
+                    status_var.set("No face detected — center your face in view")
+                elif len(faces) > 1:
+                    status_var.set("Multiple faces detected — ensure only you are visible")
+                else:
+                    primary_face = faces[0]
+                    fx, fy = int(primary_face[0]), int(primary_face[1])
+                    fw, fh = int(primary_face[2]), int(primary_face[3])
 
-                    # Extract face crop for feature vector
-                    face_roi = gray[y : y + h, x : x + w]
-                    resized = cv2.resize(face_roi, (32, 32)).astype(np.float32).flatten()
-                    normalized = resized / (np.linalg.norm(resized) + 1e-7)
+                    emb = self.engine.extract_embedding(frame, primary_face)
+                    face_matched, current_sim = self.engine.match_against_owner(emb)
 
-                    # Estimate motion / liveness
-                    ear_history.append(0.28)  # standard baseline
-                    if len(ear_history) > 10:
-                        ear_history.pop(0)
+                    box_color = (0, 255, 128) if face_matched else (0, 0, 255)
+                    cv2.rectangle(frame, (fx, fy), (fx + fw, fy + fh), box_color, 2)
 
-                    # Evaluate face against engine
-                    if self.engine.is_enrolled():
-                        sim = self.engine.compute_similarity(normalized, self.engine._enrolled_embedding)
-                        if sim >= 0.70:
-                            # Owner recognized!
-                            status_var.set(f"Face recognized ({self.engine._owner_name}). Approved!")
-                            self.result = {
-                                "approved": True,
-                                "reason": "APPROVED",
-                                "message": f"Biometric verification verified for {self.engine._owner_name}.",
-                                "confidence": round(sim, 3),
-                                "liveness_score": 0.88,
-                            }
-                            self._running = False
-                            root.after(400, root.destroy)
-                            break
-                        else:
-                            status_var.set("Face mismatch: Unrecognized person.")
+                    if not face_matched:
+                        status_var.set(f"Face mismatch ({current_sim:.2f} < {self.engine.cosine_threshold:.2f}) — Impostor")
+                    elif not live_res["completed"]:
+                        status_var.set(f"Challenge: {live_res['prompt']}")
+                    else:
+                        status_var.set("✔ Face and Liveness Verified! Approving...")
+                        self.result = {
+                            "approved": True,
+                            "owner_name": owner_name,
+                            "reason": "APPROVED",
+                            "message": f"Verified in-person presence for {owner_name}.",
+                            "confidence": round(float(current_sim), 4),
+                            "liveness_score": round(float(live_res.get("liveness_score", 0.95)), 4),
+                        }
+                        self._running = False
+                        root.after(350, root.destroy)
+                        return
 
-                # Render frame into Tkinter Canvas
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 rgb_resized = cv2.resize(rgb, (480, 320))
                 img = Image.fromarray(rgb_resized)
@@ -250,7 +257,6 @@ class BiometricAuthDialog:
 
             root.after(30, update_frame)
 
-        # Position window centered on screen
         root.eval("tk::PlaceWindow . center")
         root.after(50, update_frame)
 
