@@ -20,3 +20,6 @@ __pycache__/
 .env
 *.enc
 audit*.log
+
+__pycache__/
+*.pyc
