@@ -1,0 +1,18 @@
+name: omnihermes
+version: "1.0.0"
+title: "Omnihermes: Biometric Presence & Face-Verified Security Gate"
+description: "Local on-device biometric presence and face-verified authorization gate for Hermes Agent. Intercepts high-risk actions (payments, shell commands, messaging, data deletion) and requires webcam liveness and face matching before execution."
+author: "FaceTrust AI"
+license: "Apache-2.0"
+category: "security"
+provides_tools:
+  - omnihermes_status
+  - omnihermes_enroll
+  - omnihermes_configure
+  - omnihermes_audit_logs
+provides_hooks:
+  - pre_tool_call
+requires_hermes: ">=0.8.0"
+entrypoint: "__init__.py"
+desktop:
+  plugin: "desktop/plugin.js"

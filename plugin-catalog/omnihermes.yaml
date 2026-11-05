@@ -1,0 +1,21 @@
+name: omnihermes
+title: "Omnihermes: Biometric Presence & Face-Verified Security Gate"
+description: "Local on-device biometric presence and face-verified authorization gate for Hermes Agent. Intercepts high-risk actions (financial transactions, shell execution, database deletion, messaging) and enforces webcam liveness and facial recognition before execution. Privacy-first: no raw face images stored; uses encrypted local embeddings."
+repo: "https://github.com/facetrust-ai/omnihermes"
+sha: "0000000000000000000000000000000000000000"
+tier: "community"
+category: "security"
+requires_hermes: ">=0.8.0"
+capabilities:
+  tools:
+    - omnihermes_status
+    - omnihermes_enroll
+    - omnihermes_configure
+    - omnihermes_audit_logs
+  hooks:
+    - pre_tool_call
+disclosures:
+  webcam_access: true
+  network_access: false
+  local_storage: true
+  subprocess_execution: false
