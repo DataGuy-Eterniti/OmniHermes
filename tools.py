@@ -8,12 +8,20 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
-from presence.audit import AuditLogger
-from presence.biometrics import BiometricEngine
-from presence.enroll import run_enrollment
-from presence.unlock import UnlockManager, run_unlock_interactive
-from core.policy import PolicyEngine
-from core.away import PresenceMonitor
+try:
+    from .presence.audit import AuditLogger
+    from .presence.biometrics import BiometricEngine
+    from .presence.enroll import run_enrollment
+    from .presence.unlock import UnlockManager, run_unlock_interactive
+    from .core.policy import PolicyEngine
+    from .core.away import PresenceMonitor
+except (ImportError, ValueError):
+    from presence.audit import AuditLogger
+    from presence.biometrics import BiometricEngine
+    from presence.enroll import run_enrollment
+    from presence.unlock import UnlockManager, run_unlock_interactive
+    from core.policy import PolicyEngine
+    from core.away import PresenceMonitor
 
 
 # Shared singletons

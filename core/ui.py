@@ -19,8 +19,12 @@ try:
 except ImportError:
     tk = None
 
-from presence.biometrics import BiometricEngine
-from presence.liveness import LivenessSession
+try:
+    from ..presence.biometrics import BiometricEngine
+    from ..presence.liveness import LivenessSession
+except (ImportError, ValueError):
+    from presence.biometrics import BiometricEngine
+    from presence.liveness import LivenessSession
 
 
 class BiometricAuthDialog:
@@ -257,7 +261,13 @@ class BiometricAuthDialog:
 
             root.after(30, update_frame)
 
-        root.eval("tk::PlaceWindow . center")
+        root.update_idletasks()
+        win_w, win_h = 540, 560
+        scr_w = root.winfo_screenwidth()
+        scr_h = root.winfo_screenheight()
+        pos_x = max(0, (scr_w - win_w) // 2)
+        pos_y = max(0, (scr_h - win_h) // 2)
+        root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
         root.after(50, update_frame)
 
         try:

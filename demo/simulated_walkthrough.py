@@ -55,8 +55,8 @@ def run_simulation():
     time.sleep(1)
 
     # Step 3: High-risk action intercepted
-    print("\033[1;33m[STEP 3/5] [SIMULATED] Intercepting High-Risk Tool: terminal ('rm -rf /test')\033[0m")
-    print("  \033[36m⚡ Guard Triggered: 'terminal' command matches destructive pattern 'rm -rf'.\033[0m")
+    print("\033[1;33m[STEP 3/5] [SIMULATED] Intercepting High-Risk Tool: terminal ('del /s temp_folder')\033[0m")
+    print("  \033[36m⚡ Guard Triggered: 'terminal' command matches destructive pattern.\033[0m")
     time.sleep(1)
 
     presence.mark_seen("Elijah")
@@ -64,7 +64,7 @@ def run_simulation():
         event_type="INTERCEPT_APPROVED",
         user_name="Elijah",
         tool_name="terminal",
-        action="rm -rf /test",
+        action="del /s temp_folder",
         result="APPROVED",
         similarity_score=0.82,
         liveness_score=0.95,
@@ -93,7 +93,7 @@ def run_simulation():
         event_type="INTERCEPT_REJECTED",
         user_name="Candidate",
         tool_name="terminal",
-        action="sudo reboot",
+        action="elevated_admin_cmd",
         result="REJECTED_LIVENESS_FAILED",
         similarity_score=0.85,
         liveness_score=0.12,

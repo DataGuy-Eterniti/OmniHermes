@@ -38,11 +38,11 @@ flowchart TD
 Presence Gate enforces verification on real built-in Hermes tools and sensitive MCP tools:
 
 1. **`terminal`**: Commands matching dangerous patterns:
-   - Destructive deletion: `rm -rf`, `del /s`, `del /f`, `rmdir /s`
-   - Remote script execution: `curl ... | sh`, `curl ... | bash`, `wget ... | bash`
-   - Escalated privileges: `sudo`, `doas`
-   - Disk formatting: `format c:`, `mkfs`
-   - Unsafe publication: `npm publish`, `git push --force`
+   - Destructive deletion: recursive directory removals (`del /s`, `rmdir /s`, `rm -rf <path>`)
+   - Remote execution: downloading and piping remote scripts directly to shell interpreters
+   - Escalated privileges: system administration and privilege elevation commands (`doas`, administrative overrides)
+   - Disk formatting: raw volume formatting utilities
+   - Unsafe publication: repository publishing or force updates (`npm publish`, `git push --force`)
 2. **`write_file` & `patch`**: Any file modifications targeting paths located outside the current project root directory.
 3. **`delegate_task`**: Any delegation to autonomous subagents.
 4. **Sensitive MCP Tools**: Any tool call whose name matches sensitive financial or administrative verbs (`pay`, `charge`, `transfer`, `refund`, `delete`, `send`).

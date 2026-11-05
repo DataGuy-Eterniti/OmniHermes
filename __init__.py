@@ -11,31 +11,53 @@ import os
 import sys
 from typing import Any, Dict, Optional
 
-from schemas import (
-    PRESENCE_STATUS_SCHEMA,
-    PRESENCE_ENROLL_SCHEMA,
-    PRESENCE_CONFIGURE_SCHEMA,
-    PRESENCE_AUDIT_LOGS_SCHEMA,
-    PRESENCE_UNLOCK_SCHEMA,
-    # Backward compatibility
-    OMNIHERMES_STATUS_SCHEMA,
-    OMNIHERMES_ENROLL_SCHEMA,
-    OMNIHERMES_CONFIGURE_SCHEMA,
-    OMNIHERMES_AUDIT_LOGS_SCHEMA,
-)
-from tools import (
-    handle_presence_status,
-    handle_presence_enroll,
-    handle_presence_configure,
-    handle_presence_audit_logs,
-    handle_presence_unlock,
-    get_biometrics,
-    get_policy,
-    get_audit,
-    get_presence,
-    get_unlock_manager,
-)
-from core.ui import BiometricAuthDialog
+# Ensure plugin directory is at the front of sys.path so plugin modules resolve before core names
+_PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+if not sys.path or sys.path[0] != _PLUGIN_DIR:
+    if _PLUGIN_DIR in sys.path:
+        sys.path.remove(_PLUGIN_DIR)
+    sys.path.insert(0, _PLUGIN_DIR)
+
+try:
+    from .schemas import (
+        PRESENCE_STATUS_SCHEMA,
+        PRESENCE_ENROLL_SCHEMA,
+        PRESENCE_CONFIGURE_SCHEMA,
+        PRESENCE_AUDIT_LOGS_SCHEMA,
+        PRESENCE_UNLOCK_SCHEMA,
+    )
+    from .tools import (
+        handle_presence_status,
+        handle_presence_enroll,
+        handle_presence_configure,
+        handle_presence_audit_logs,
+        handle_presence_unlock,
+        get_biometrics,
+        get_policy,
+        get_audit,
+        get_presence,
+        get_unlock_manager,
+    )
+except (ImportError, ValueError):
+    from schemas import (
+        PRESENCE_STATUS_SCHEMA,
+        PRESENCE_ENROLL_SCHEMA,
+        PRESENCE_CONFIGURE_SCHEMA,
+        PRESENCE_AUDIT_LOGS_SCHEMA,
+        PRESENCE_UNLOCK_SCHEMA,
+    )
+    from tools import (
+        handle_presence_status,
+        handle_presence_enroll,
+        handle_presence_configure,
+        handle_presence_audit_logs,
+        handle_presence_unlock,
+        get_biometrics,
+        get_policy,
+        get_audit,
+        get_presence,
+        get_unlock_manager,
+    )
 
 
 def is_headless_or_gateway(kwargs: Dict[str, Any]) -> bool:
@@ -168,6 +190,11 @@ def on_pre_tool_call(**kwargs) -> Dict[str, Any]:
             return {"action": "allow"}
 
         # 6. Launch Biometric Challenge Dialog with strict internal timeout (22s < 25s)
+        try:
+            from .core.ui import BiometricAuthDialog
+        except (ImportError, ValueError):
+            from core.ui import BiometricAuthDialog
+
         dialog = BiometricAuthDialog(
             tool_name=tool_name,
             action_summary=action_summary,
@@ -241,17 +268,36 @@ def on_pre_tool_call(**kwargs) -> Dict[str, Any]:
 def register(ctx: Any) -> None:
     """Hermes Agent plugin registration entrypoint."""
     # Register tool handlers and schemas
-    ctx.register_tool(PRESENCE_STATUS_SCHEMA, handle_presence_status)
-    ctx.register_tool(PRESENCE_ENROLL_SCHEMA, handle_presence_enroll)
-    ctx.register_tool(PRESENCE_CONFIGURE_SCHEMA, handle_presence_configure)
-    ctx.register_tool(PRESENCE_AUDIT_LOGS_SCHEMA, handle_presence_audit_logs)
-    ctx.register_tool(PRESENCE_UNLOCK_SCHEMA, handle_presence_unlock)
-
-    # Backward compatibility
-    ctx.register_tool(OMNIHERMES_STATUS_SCHEMA, handle_presence_status)
-    ctx.register_tool(OMNIHERMES_ENROLL_SCHEMA, handle_presence_enroll)
-    ctx.register_tool(OMNIHERMES_CONFIGURE_SCHEMA, handle_presence_configure)
-    ctx.register_tool(OMNIHERMES_AUDIT_LOGS_SCHEMA, handle_presence_audit_logs)
+    ctx.register_tool(
+        name="presence_status",
+        toolset="presence-gate",
+        schema=PRESENCE_STATUS_SCHEMA,
+        handler=handle_presence_status,
+    )
+    ctx.register_tool(
+        name="presence_enroll",
+        toolset="presence-gate",
+        schema=PRESENCE_ENROLL_SCHEMA,
+        handler=handle_presence_enroll,
+    )
+    ctx.register_tool(
+        name="presence_configure",
+        toolset="presence-gate",
+        schema=PRESENCE_CONFIGURE_SCHEMA,
+        handler=handle_presence_configure,
+    )
+    ctx.register_tool(
+        name="presence_audit_logs",
+        toolset="presence-gate",
+        schema=PRESENCE_AUDIT_LOGS_SCHEMA,
+        handler=handle_presence_audit_logs,
+    )
+    ctx.register_tool(
+        name="presence_unlock",
+        toolset="presence-gate",
+        schema=PRESENCE_UNLOCK_SCHEMA,
+        handler=handle_presence_unlock,
+    )
 
     # Register lifecycle hooks
     ctx.register_hook("pre_tool_call", on_pre_tool_call)

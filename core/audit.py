@@ -1,5 +1,8 @@
 """Audit logger bridge to presence package."""
 
-from presence.audit import AuditLogger
+try:
+    from ..presence.audit import AuditLogger
+except (ImportError, ValueError):
+    from presence.audit import AuditLogger
 
 __all__ = ["AuditLogger"]

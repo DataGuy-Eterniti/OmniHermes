@@ -1,23 +1,20 @@
 name: presence-gate
-title: "Presence Gate: Biometric Presence & Face-Verified Security Gate"
-description: "On-device biometric presence and face-verified authorization gate for Hermes Agent. Intercepts high-risk actions (terminal commands, file changes outside project, sensitive MCP actions) and requires webcam liveness and face matching before execution. Privacy-first: no raw face images stored; uses encrypted local embeddings."
-repo: "https://github.com/facetrust-ai/presence-gate"
-sha: "d44eaf2ba2254e581c600049575e9ee1d7856c20"
-tier: "community"
-category: "security"
-requires_hermes: ">=0.8.0"
+repo: https://github.com/DataGuy-Eterniti/presence-gate
+sha: "<sha>"
+description: "On-device biometric presence and face-verified authorization gate for Hermes Agent."
+maintainer: DataGuy-Eterniti
+tier: community
+category: tools
+requires_hermes: ">=0.22.7"
+version: "1.0.0"
 capabilities:
-  tools:
+  provides_tools:
     - presence_status
     - presence_enroll
     - presence_configure
     - presence_audit_logs
     - presence_unlock
-  hooks:
+  provides_hooks:
     - pre_tool_call
-disclosures:
-  webcam_access: true
-  network_access: false
-  local_storage: true
-  subprocess_execution: false
-
+  provides_middleware: []
+  requires_env: []
