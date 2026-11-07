@@ -1,8 +1,11 @@
 """Unit tests for the real OmniHermes engine."""
 
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -11,6 +14,7 @@ from omnihermes.audit import AuditLogger
 from omnihermes.biometrics import BiometricEngine, DEFAULT_COSINE_THRESHOLD
 from omnihermes.crypto import encrypt_payload, decrypt_payload, get_or_generate_key
 from omnihermes.liveness import calculate_ear, euclidean_dist
+from omnihermes.tools import reset_singletons
 
 
 class DummyLandmark:
@@ -23,8 +27,13 @@ class TestOmniHermesEngine(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temp_dir.name)
+        os.environ["OMNIHERMES_TEST_MODE"] = "1"
+        os.environ["HERMES_PLUGIN_DATA_DIR"] = str(self.data_dir)
+        reset_singletons(self.data_dir)
 
     def tearDown(self):
+        reset_singletons(None)
+        os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
         self.temp_dir.cleanup()
 
     def test_crypto_roundtrip(self):
@@ -112,6 +121,85 @@ class TestOmniHermesEngine(unittest.TestCase):
         ]
         ear_closed = calculate_ear(closed_eye, [0, 1, 2, 3, 4, 5], 100, 100)
         self.assertLess(ear_closed, 0.10)
+
+    def test_all_five_tools_return_str(self):
+        """Regression Test: All 5 tool handlers must return JSON serialized string (not dict)."""
+        from omnihermes.tools import (
+            handle_omnihermes_status,
+            handle_omnihermes_enroll,
+            handle_omnihermes_configure,
+            handle_omnihermes_audit_logs,
+            handle_omnihermes_unlock,
+        )
+
+        # 1. Status
+        res_status = handle_omnihermes_status({})
+        self.assertIsInstance(res_status, str, "handle_omnihermes_status must return str")
+        data_status = json.loads(res_status)
+        self.assertIn("status", data_status)
+
+        # 2. Enroll (mock embedding mode)
+        res_enroll = handle_omnihermes_enroll({"owner_name": "TestUser", "test_embedding": [0.05] * 128})
+        self.assertIsInstance(res_enroll, str, "handle_omnihermes_enroll must return str")
+        data_enroll = json.loads(res_enroll)
+        self.assertEqual(data_enroll.get("status"), "success")
+
+        # 3. Configure
+        res_config = handle_omnihermes_configure({"mode": "strict"})
+        self.assertIsInstance(res_config, str, "handle_omnihermes_configure must return str")
+        data_config = json.loads(res_config)
+        self.assertEqual(data_config.get("status"), "success")
+
+        # 4. Audit logs
+        res_audit = handle_omnihermes_audit_logs({"limit": 5})
+        self.assertIsInstance(res_audit, str, "handle_omnihermes_audit_logs must return str")
+        data_audit = json.loads(res_audit)
+        self.assertIn("recent_events", data_audit)
+
+        # 5. Unlock
+        with patch("omnihermes.tools.run_unlock_interactive", return_value=True):
+            res_unlock = handle_omnihermes_unlock({"duration_seconds": 60})
+            self.assertIsInstance(res_unlock, str, "handle_omnihermes_unlock must return str")
+            data_unlock = json.loads(res_unlock)
+            self.assertTrue(data_unlock.get("unlocked"))
+
+    def test_unlock_handler_returns_str_on_abrupt_window_close(self):
+        """Task requirement: handle_omnihermes_unlock must return str even if window is closed abruptly."""
+        from omnihermes.tools import handle_omnihermes_unlock
+
+        # Window closed abruptly (run_unlock_interactive returns False)
+        with patch("omnihermes.tools.run_unlock_interactive", return_value=False):
+            res = handle_omnihermes_unlock({})
+            self.assertIsInstance(res, str)
+            data = json.loads(res)
+            self.assertEqual(data.get("status"), "failed")
+            self.assertFalse(data.get("unlocked"))
+
+        # Abrupt exception during window lifecycle
+        with patch("omnihermes.tools.run_unlock_interactive", side_effect=RuntimeError("Window destroyed by user")):
+            res = handle_omnihermes_unlock({})
+            self.assertIsInstance(res, str)
+            data = json.loads(res)
+            self.assertEqual(data.get("status"), "failed")
+            self.assertFalse(data.get("unlocked"))
+
+    def test_test_mode_guard_blocks_writes_to_real_data(self):
+        """Task Requirement 1: Guard must raise error if test code attempts to resolve or write to real data."""
+        from omnihermes.models import assert_not_real_data_dir, get_default_data_dir
+        real_hermes = Path.home() / ".hermes" / "omnihermes"
+
+        # 1. Direct write guard
+        with self.assertRaises(RuntimeError) as ctx:
+            assert_not_real_data_dir(real_hermes, operation="test_write")
+        self.assertIn("OMNIHERMES_TEST_MODE guard", str(ctx.exception))
+
+        # 2. Resolution guard if HERMES_PLUGIN_DATA_DIR unset
+        with patch.dict(os.environ, {}, clear=False):
+            if "HERMES_PLUGIN_DATA_DIR" in os.environ:
+                del os.environ["HERMES_PLUGIN_DATA_DIR"]
+            with self.assertRaises(RuntimeError) as ctx2:
+                get_default_data_dir()
+            self.assertIn("OMNIHERMES_TEST_MODE guard", str(ctx2.exception))
 
 
 if __name__ == "__main__":

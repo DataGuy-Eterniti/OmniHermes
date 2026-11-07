@@ -1,5 +1,6 @@
 """Tests for Omnihermes biometrics engine."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,10 +11,13 @@ from core.biometrics import BiometricEngine
 
 class TestBiometrics(unittest.TestCase):
     def setUp(self):
+        os.environ["OMNIHERMES_TEST_MODE"] = "1"
         self.temp_dir = tempfile.TemporaryDirectory()
+        os.environ["HERMES_PLUGIN_DATA_DIR"] = self.temp_dir.name
         self.engine = BiometricEngine(data_dir=Path(self.temp_dir.name))
 
     def tearDown(self):
+        os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
         self.temp_dir.cleanup()
 
     def test_enrollment_and_matching(self):

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from omnihermes.audit import AuditLogger
-from omnihermes.models import get_default_data_dir
+from omnihermes.models import get_default_data_dir, assert_not_real_data_dir
 
 
 class UnlockManager:
@@ -40,6 +40,7 @@ class UnlockManager:
             self._unlocked_until = 0.0
 
     def _save_state(self) -> None:
+        assert_not_real_data_dir(self.state_file, operation="save_unlock_state")
         try:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.state_file, "w", encoding="utf-8") as f:
@@ -107,14 +108,14 @@ class UnlockManager:
         self._save_state()
 
 
-def run_unlock_interactive(timeout: int = 300, duration: int = 120, camera_idx: int = 0) -> bool:
-    """Run interactive biometric unlock with relaxed 5-minute timeout."""
+def run_unlock_interactive(timeout: int = 45, duration: int = 120, camera_idx: int = 0) -> bool:
+    """Run interactive biometric unlock with responsive 45-second timeout."""
     from omnihermes.verify import run_verify
     from omnihermes.tools import get_presence
 
     print("=" * 60)
     print("OMNIHERMES: INTERACTIVE WORKSTATION UNLOCK")
-    print(f"• Verification Timeout: {timeout}s (5 minutes)")
+    print(f"• Verification Timeout: {timeout}s")
     print(f"• Unlock Duration on Success: {duration}s (2 minutes)")
     print("=" * 60)
 
@@ -139,7 +140,7 @@ def run_unlock_interactive(timeout: int = 300, duration: int = 120, camera_idx: 
 
 def main():
     parser = argparse.ArgumentParser(description="OmniHermes - Workstation Unlock")
-    parser.add_argument("--timeout", type=int, default=300, help="Verification timeout in seconds (default: 300s)")
+    parser.add_argument("--timeout", type=int, default=45, help="Verification timeout in seconds (default: 45s)")
     parser.add_argument("--duration", type=int, default=120, help="Unlock duration in seconds (default: 120s)")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")
 

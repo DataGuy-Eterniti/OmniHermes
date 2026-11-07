@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from omnihermes.models import get_default_data_dir
+from omnihermes.models import get_default_data_dir, assert_not_real_data_dir
 
 
 class AuditLogger:
@@ -81,6 +81,7 @@ class AuditLogger:
         current_hash = hashlib.sha256(canonical_bytes).hexdigest()
         entry_body["current_hash"] = current_hash
 
+        assert_not_real_data_dir(self.log_path, operation="append_audit_log")
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry_body) + "\n")
 

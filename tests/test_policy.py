@@ -1,5 +1,6 @@
 """Tests for OmniHermes policy engine and real Hermes targets."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,11 +10,14 @@ from core.policy import PolicyEngine
 
 class TestPolicyEngine(unittest.TestCase):
     def setUp(self):
+        os.environ["OMNIHERMES_TEST_MODE"] = "1"
         self.temp_dir = tempfile.TemporaryDirectory()
+        os.environ["HERMES_PLUGIN_DATA_DIR"] = self.temp_dir.name
         self.cfg_file = Path(self.temp_dir.name) / "test_config.json"
         self.engine = PolicyEngine(config_path=self.cfg_file, project_root=Path(self.temp_dir.name))
 
     def tearDown(self):
+        os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
         self.temp_dir.cleanup()
 
     def test_benign_tool_not_guarded(self):

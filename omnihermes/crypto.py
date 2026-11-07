@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
-from omnihermes.models import get_default_data_dir
+from omnihermes.models import get_default_data_dir, assert_not_real_data_dir
 
 
 def derive_key(salt: bytes, user_passphrase: str = "") -> bytes:
@@ -59,6 +59,7 @@ def get_or_generate_key(data_dir: Optional[Path] = None, explicit_key: Optional[
             pass
 
     # Generate new random 256-bit key
+    assert_not_real_data_dir(key_file, operation="generate_secret_key")
     new_key = os.urandom(32)
     key_file.parent.mkdir(parents=True, exist_ok=True)
     with open(key_file, "wb") as f:

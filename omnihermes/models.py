@@ -53,8 +53,51 @@ MODELS: Dict[str, Dict[str, str]] = {
 }
 
 
+def is_real_data_dir(p: Path) -> bool:
+    """Check if path targets the real user .hermes configuration or repo .data cache."""
+    try:
+        resolved = p.resolve()
+        hermes_home = (Path.home() / ".hermes").resolve()
+        if resolved == hermes_home or hermes_home in resolved.parents or str(resolved).startswith(str(hermes_home)):
+            return True
+        data_cache = (Path(__file__).resolve().parent.parent / ".data").resolve()
+        if resolved == data_cache or data_cache in resolved.parents or str(resolved).startswith(str(data_cache)):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def assert_not_real_data_dir(p: Path, operation: str = "write") -> None:
+    """Hard security guard ensuring test executions never touch real user profiles or logs."""
+    if os.environ.get("OMNIHERMES_TEST_MODE") == "1":
+        if is_real_data_dir(p):
+            raise RuntimeError(
+                f"OMNIHERMES_TEST_MODE guard: Attempted {operation} on real user/repo data directory: {p}! "
+                "Tests must use an isolated temporary directory (tempfile / pytest tmp_path)."
+            )
+
+
 def get_default_data_dir() -> Path:
-    """Resolve data directory for models, profiles, and audit log."""
+    """Resolve data directory for models, profiles, and audit log.
+    
+    Guarded in test mode to guarantee zero leakage into real user data.
+    """
+    if os.environ.get("OMNIHERMES_TEST_MODE") == "1":
+        if "HERMES_PLUGIN_DATA_DIR" in os.environ:
+            p = Path(os.environ["HERMES_PLUGIN_DATA_DIR"])
+            if is_real_data_dir(p):
+                raise RuntimeError(
+                    f"OMNIHERMES_TEST_MODE guard: HERMES_PLUGIN_DATA_DIR points to real user data: {p}! "
+                    "Tests must specify an isolated temporary directory."
+                )
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        raise RuntimeError(
+            "OMNIHERMES_TEST_MODE guard: get_default_data_dir() called in test mode without an isolated "
+            "HERMES_PLUGIN_DATA_DIR! Tests must never access real user data."
+        )
+
     if "HERMES_PLUGIN_DATA_DIR" in os.environ:
         p = Path(os.environ["HERMES_PLUGIN_DATA_DIR"])
     elif (Path.home() / ".hermes").exists():

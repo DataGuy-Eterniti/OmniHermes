@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
-    from omnihermes.models import get_default_data_dir
+    from omnihermes.models import get_default_data_dir, assert_not_real_data_dir
 except (ImportError, ValueError):
-    from .models import get_default_data_dir
+    from .models import get_default_data_dir, assert_not_real_data_dir
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": True,
@@ -107,6 +107,7 @@ class PolicyEngine:
 
     def save_config(self, config_to_save: Optional[Dict[str, Any]] = None) -> bool:
         """Persist configuration to disk."""
+        assert_not_real_data_dir(self.config_path, operation="save_policy_config")
         if config_to_save is not None:
             self.config = config_to_save
         try:

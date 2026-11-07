@@ -5,6 +5,8 @@ are clearly labeled as fixtures.
 """
 
 import math
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -71,7 +73,15 @@ def create_face_landmarks_fixture(yaw_deg: float, is_flat_photo: bool = False) -
 
 class TestAntiSpoofRegression(unittest.TestCase):
     def setUp(self):
-        self.engine = AntiSpoofEngine()
+        os.environ["OMNIHERMES_TEST_MODE"] = "1"
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.data_dir = Path(self.temp_dir.name)
+        os.environ["HERMES_PLUGIN_DATA_DIR"] = str(self.data_dir)
+        self.engine = AntiSpoofEngine(data_dir=self.data_dir)
+
+    def tearDown(self):
+        os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
+        self.temp_dir.cleanup()
 
     def test_minifasnet_model_inference_fixture(self):
         """Fixture Test: MiniFASNet successfully evaluates synthetic image crops."""
@@ -146,6 +156,51 @@ class TestAntiSpoofRegression(unittest.TestCase):
         self.assertFalse(summary["passed"])
         self.assertEqual(summary["spoof_count"], 12)
         self.assertLess(summary["avg_real_score"], 0.60)
+
+    def test_rotated_flat_photo_rejected_by_verdict(self):
+        """Fixture Test: Rotated flat photo fails parallax check and verdict decision."""
+        session = LivenessSession(secondary_challenge="turn_left")
+        session.blink_count = 2
+        session.current_phase = 2
+        session.head_movement_reached = True  # Flat photo was rotated
+        session.max_parallax_shift = 0.005    # Near-zero depth differential
+        session.parallax_passed = False
+
+        passed, reason, details = session.get_verdict_decision()
+        self.assertFalse(passed)
+        self.assertEqual(reason, "REJECTED_NO_PARALLAX")
+        self.assertIn("3D parallax consistency check failed", details["reason"])
+
+    def test_static_photo_rejected_by_verdict(self):
+        """Fixture Test: Static photo with no blinks fails verdict decision."""
+        session = LivenessSession(secondary_challenge="nod_down")
+        session.blink_count = 0  # No blinks
+        session.current_phase = 1
+
+        passed, reason, details = session.get_verdict_decision()
+        self.assertFalse(passed)
+        self.assertEqual(reason, "REJECTED_NO_BLINK")
+
+    def test_relative_movement_baseline_with_low_webcam_tilt(self):
+        """Fixture Test: Low webcam pitch offset does not impede nod detection."""
+        session = LivenessSession(secondary_challenge="nod_down")
+        session.blink_count = 2
+        session.current_phase = 2
+
+        # Webcam looks up at user: baseline pitch is tilted at -14 degrees
+        session.baseline_pitch = -14.0
+        session.baseline_nod_ratio = 0.410
+        session.baseline_established = True
+
+        # User nods down slightly: pitch reaches -5.5 degrees (Δ = +8.5 deg)
+        session.smoothed_pitch = -5.5
+        session.smoothed_nod_ratio = 0.450
+
+        delta_pitch = session.smoothed_pitch - session.baseline_pitch
+        delta_nod_ratio = session.smoothed_nod_ratio - session.baseline_nod_ratio
+
+        self.assertGreaterEqual(delta_pitch, 8.0, "Relative pitch change must cross 8.0 deg threshold")
+        self.assertGreaterEqual(delta_nod_ratio, 0.035, "Relative nod ratio must cross 0.035 threshold")
 
 
 if __name__ == "__main__":

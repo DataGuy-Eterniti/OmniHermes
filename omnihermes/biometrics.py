@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from omnihermes.crypto import decrypt_payload, encrypt_payload
-from omnihermes.models import ensure_models, get_default_data_dir
+from omnihermes.models import ensure_models, get_default_data_dir, assert_not_real_data_dir
 
 # OpenCV recommended threshold for SFace cosine similarity is 0.363
 DEFAULT_COSINE_THRESHOLD = 0.363
@@ -121,6 +121,7 @@ class BiometricEngine:
 
     def save_profile(self, owner_name: str, embedding: np.ndarray, is_primary: bool = True) -> Dict[str, Any]:
         """Encrypt and save the owner profile."""
+        assert_not_real_data_dir(self.profile_path, operation="save_profile")
         norm_emb = embedding.reshape(1, 128).astype(np.float32)
         norm = np.linalg.norm(norm_emb)
         if norm > 1e-6:

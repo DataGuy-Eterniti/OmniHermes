@@ -24,9 +24,14 @@ from omnihermes.tools import get_biometrics, get_policy, get_presence, handle_om
 
 class TestHookInterceptor(unittest.TestCase):
     def setUp(self):
+        os.environ["OMNIHERMES_TEST_MODE"] = "1"
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.temp_audit_file = Path(self.temp_dir.name) / "test_audit.jsonl"
-        self.temp_debug_log = Path(self.temp_dir.name) / "test_debug.log"
+        self.data_dir = Path(self.temp_dir.name)
+        os.environ["HERMES_PLUGIN_DATA_DIR"] = str(self.data_dir)
+        tools.reset_singletons(self.data_dir)
+
+        self.temp_audit_file = self.data_dir / "test_audit.jsonl"
+        self.temp_debug_log = self.data_dir / "test_debug.log"
         self.mock_audit = AuditLogger(log_path=self.temp_audit_file)
         
         self.audit_patcher = patch.object(tools, "_audit", self.mock_audit)
@@ -40,6 +45,8 @@ class TestHookInterceptor(unittest.TestCase):
     def tearDown(self):
         self.audit_patcher.stop()
         self.debug_patcher.stop()
+        tools.reset_singletons(None)
+        os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
         self.temp_dir.cleanup()
 
     def test_benign_tool_allowed_instantly(self):
@@ -114,14 +121,15 @@ class TestHookInterceptor(unittest.TestCase):
 
     def test_away_state_blocks_guarded_tool(self):
         """Live Test: Away detector automatically pauses sensitive operations."""
-        get_presence().mark_away()
-        result = omnihermes_gate.on_pre_tool_call(
-            tool_name="terminal",
-            arguments={"command": "rm -rf /test"},
-        )
-        self.assertEqual(result.get("action"), "block")
-        self.assertIn("away", result.get("message", "").lower())
-        self.assertIn("/omnihermes unlock", result.get("message", ""))
+        with patch.object(get_biometrics(), "is_enrolled", return_value=True):
+            get_presence().mark_away()
+            result = omnihermes_gate.on_pre_tool_call(
+                tool_name="terminal",
+                arguments={"command": "rm -rf /test"},
+            )
+            self.assertEqual(result.get("action"), "block")
+            self.assertIn("away", result.get("message", "").lower())
+            self.assertIn("/omnihermes unlock", result.get("message", ""))
 
     def test_cached_presence_mode_with_mock_embedding(self):
         """Mock Test: Cached presence mode approves when user is actively present."""

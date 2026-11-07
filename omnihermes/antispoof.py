@@ -17,25 +17,74 @@ from omnihermes.models import ensure_models, get_default_data_dir
 
 
 def crop_face_square(img: np.ndarray, bbox: Tuple[int, int, int, int], expansion: float = 1.5) -> np.ndarray:
-    """Extract expanded square face crop with reflection padding, resized to 128x128."""
+    """Extract expanded square face crop matching facenox/face-antispoof-onnx exactly.
+    
+    Ensures RGB channel order, letterbox resize to 128x128, and reflection padding.
+    """
+    original_height, original_width = img.shape[:2]
     x, y, w, h = bbox
-    max_dim = max(w, h)
-    cx, cy = x + w / 2.0, y + h / 2.0
-    crop_sz = int(max_dim * expansion)
-    x1 = int(cx - crop_sz / 2.0)
-    y1 = int(cy - crop_sz / 2.0)
 
-    H, W = img.shape[:2]
-    top_pad = max(0, -y1)
-    left_pad = max(0, -x1)
-    bottom_pad = max(0, (y1 + crop_sz) - H)
-    right_pad = max(0, (x1 + crop_sz) - W)
+    # Ensure w and h are width and height, or x2, y2 coordinates
+    if w > x and h > y and w > original_width * 0.1:
+        # bbox passed as (x1, y1, x2, y2)
+        bw = w - x
+        bh = h - y
+    else:
+        bw = w
+        bh = h
 
-    cr = img[max(0, y1) : min(H, y1 + crop_sz), max(0, x1) : min(W, x1 + crop_sz)]
-    if top_pad or bottom_pad or left_pad or right_pad:
-        cr = cv2.copyMakeBorder(cr, top_pad, bottom_pad, left_pad, right_pad, cv2.BORDER_REFLECT_101)
+    if bw <= 0 or bh <= 0:
+        return np.zeros((128, 128, 3), dtype=img.dtype)
 
-    return cv2.resize(cr, (128, 128), interpolation=cv2.INTER_AREA)
+    max_dim = max(bw, bh)
+    center_x = x + bw / 2.0
+    center_y = y + bh / 2.0
+
+    crop_x = int(center_x - max_dim * expansion / 2.0)
+    crop_y = int(center_y - max_dim * expansion / 2.0)
+    crop_size = int(max_dim * expansion)
+
+    crop_x1 = max(0, crop_x)
+    crop_y1 = max(0, crop_y)
+    crop_x2 = min(original_width, crop_x + crop_size)
+    crop_y2 = min(original_height, crop_y + crop_size)
+
+    top_pad = int(max(0, -crop_y))
+    left_pad = int(max(0, -crop_x))
+    bottom_pad = int(max(0, (crop_y + crop_size) - original_height))
+    right_pad = int(max(0, (crop_x + crop_size) - original_width))
+
+    if crop_x2 > crop_x1 and crop_y2 > crop_y1:
+        cropped = img[crop_y1:crop_y2, crop_x1:crop_x2, :]
+    else:
+        cropped = np.zeros((0, 0, 3), dtype=img.dtype)
+
+    result = cv2.copyMakeBorder(
+        cropped,
+        top_pad,
+        bottom_pad,
+        left_pad,
+        right_pad,
+        cv2.BORDER_REFLECT_101,
+    )
+
+    # Letterbox resize with reflection padding to 128x128
+    old_size = result.shape[:2]
+    if old_size[0] == 0 or old_size[1] == 0:
+        return np.zeros((128, 128, 3), dtype=img.dtype)
+
+    ratio = 128.0 / max(old_size)
+    scaled_shape = (int(old_size[1] * ratio), int(old_size[0] * ratio))
+    interpolation = cv2.INTER_LANCZOS4 if ratio > 1.0 else cv2.INTER_AREA
+    resized = cv2.resize(result, scaled_shape, interpolation=interpolation)
+
+    delta_w = 128 - scaled_shape[0]
+    delta_h = 128 - scaled_shape[1]
+    top, bottom = delta_h // 2, delta_h - (delta_h // 2)
+    left, right = delta_w // 2, delta_w - (delta_w // 2)
+
+    letterboxed = cv2.copyMakeBorder(resized, top, bottom, left, right, cv2.BORDER_REFLECT_101)
+    return letterboxed
 
 
 class AntiSpoofEngine:
@@ -50,6 +99,10 @@ class AntiSpoofEngine:
     def predict_crop(self, face_crop: np.ndarray) -> Tuple[float, float, bool]:
         """Predict whether a 128x128 face crop is a live human or spoof.
         
+        Matches facenox/face-antispoof-onnx:
+        - Output Index 0: Spoof Logit
+        - Output Index 1: Real Logit
+        
         Returns:
             (prob_real, logit_diff, is_spoof_frame)
         """
@@ -57,15 +110,16 @@ class AntiSpoofEngine:
             face_crop,
             scalefactor=1.0 / 255.0,
             size=(128, 128),
-            swapRB=False,
+            swapRB=False,  # RGB handled during crop/frame extraction
             crop=False,
         )
         self.net.setInput(blob)
         logits = self.net.forward()[0]
-        real_logit, spoof_logit = float(logits[0]), float(logits[1])
+        # Reference mapping: logits[0] = Spoof, logits[1] = Real
+        spoof_logit, real_logit = float(logits[0]), float(logits[1])
         logit_diff = real_logit - spoof_logit
 
-        # Sigmoid probability
+        # Sigmoid / Softmax probability for Real class
         prob_real = 1.0 / (1.0 + math.exp(-max(min(logit_diff, 15.0), -15.0)))
         is_spoof = prob_real < 0.50
 
@@ -93,7 +147,11 @@ class AntiSpoofSession:
 
     def evaluate_frame(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> Dict[str, Any]:
         """Process one camera frame, crop face, and record anti-spoofing prediction."""
-        crop = crop_face_square(frame, bbox)
+        if len(frame.shape) == 3 and frame.shape[2] == 3:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        else:
+            frame_rgb = frame
+        crop = crop_face_square(frame_rgb, bbox)
         prob_real, logit_diff, is_spoof = self.engine.predict_crop(crop)
 
         self.scores.append(prob_real)

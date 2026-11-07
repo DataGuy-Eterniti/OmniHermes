@@ -9,7 +9,8 @@ from omnihermes.antispoof import AntiSpoofEngine, AntiSpoofSession
 from omnihermes.unlock import UnlockManager
 from omnihermes.audit import AuditLogger
 from omnihermes.crypto import encrypt_payload, decrypt_payload, get_or_generate_key
-from omnihermes.models import ensure_models, get_default_data_dir
+from omnihermes.models import ensure_models, get_default_data_dir, assert_not_real_data_dir, is_real_data_dir
+from omnihermes.tools import reset_singletons
 
 __all__ = [
     "BiometricEngine",
@@ -23,6 +24,9 @@ __all__ = [
     "get_or_generate_key",
     "ensure_models",
     "get_default_data_dir",
+    "assert_not_real_data_dir",
+    "is_real_data_dir",
+    "reset_singletons",
     "DEFAULT_COSINE_THRESHOLD",
 ]
 

@@ -1,6 +1,7 @@
 """Tests for Omnihermes tamper-evident audit logger."""
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,11 +11,14 @@ from core.audit import AuditLogger
 
 class TestAuditLogger(unittest.TestCase):
     def setUp(self):
+        os.environ["OMNIHERMES_TEST_MODE"] = "1"
         self.temp_dir = tempfile.TemporaryDirectory()
+        os.environ["HERMES_PLUGIN_DATA_DIR"] = self.temp_dir.name
         self.log_file = Path(self.temp_dir.name) / "test_audit.jsonl"
         self.logger = AuditLogger(log_path=self.log_file)
 
     def tearDown(self):
+        os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
         self.temp_dir.cleanup()
 
     def test_log_and_chain_verification(self):

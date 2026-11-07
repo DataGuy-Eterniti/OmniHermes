@@ -32,6 +32,24 @@ _presence: Optional[PresenceMonitor] = None
 _unlock_manager: Optional[UnlockManager] = None
 
 
+def reset_singletons(data_dir: Optional[Path] = None) -> None:
+    """Reset shared singletons. If data_dir is provided, binds all engines to it for isolated tests."""
+    global _biometrics, _policy, _audit, _presence, _unlock_manager
+    if data_dir is not None:
+        p = Path(data_dir)
+        _biometrics = BiometricEngine(data_dir=p)
+        _policy = PolicyEngine(config_path=p / "config.json", project_root=p)
+        _audit = AuditLogger(data_dir=p)
+        _presence = PresenceMonitor(timeout_seconds=45)
+        _unlock_manager = UnlockManager(data_dir=p)
+    else:
+        _biometrics = None
+        _policy = None
+        _audit = None
+        _presence = None
+        _unlock_manager = None
+
+
 def get_unlock_manager() -> UnlockManager:
     global _unlock_manager
     if _unlock_manager is None:
@@ -68,7 +86,7 @@ def get_presence() -> PresenceMonitor:
     return _presence
 
 
-def handle_omnihermes_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_status(arguments: Dict[str, Any]) -> str:
     """Report overall security status of OmniHermes."""
     bio = get_biometrics()
     pol = get_policy()
@@ -80,7 +98,7 @@ def handle_omnihermes_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
     presence_status = pres.get_status()
     owner_info = bio.get_owner_info() if bio.is_enrolled() else None
 
-    return {
+    result = {
         "status": "active" if pol.config.get("enabled", True) else "disabled",
         "enrolled": bio.is_enrolled(),
         "owner_info": owner_info,
@@ -102,9 +120,10 @@ def handle_omnihermes_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
             "message": integrity.get("message", ""),
         },
     }
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def handle_omnihermes_enroll(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_enroll(arguments: Dict[str, Any]) -> str:
     """Enroll an owner's face profile using webcam and active liveness."""
     owner_name = arguments.get("owner_name", "Elijah")
     is_primary = arguments.get("primary", True)
@@ -114,32 +133,34 @@ def handle_omnihermes_enroll(arguments: Dict[str, Any]) -> Dict[str, Any]:
         bio = get_biometrics()
         bio.save_profile(owner_name, np.array(test_embedding, dtype=np.float32), is_primary=is_primary)
         get_presence().mark_seen(owner_name)
-        return {
+        result = {
             "status": "success",
             "message": f"Enrolled '{owner_name}' with provided test embedding (mock/test mode).",
         }
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     try:
         success = run_enrollment(name=owner_name, is_primary=is_primary)
         if success:
             get_presence().mark_seen(owner_name)
-            return {
+            result = {
                 "status": "success",
                 "message": f"Successfully enrolled primary owner '{owner_name}' with encrypted SFace 128-d embedding.",
             }
         else:
-            return {
+            result = {
                 "status": "error",
-                "message": "Enrollment was cancelled or failed to capture 5 verified frames.",
+                "message": "Enrollment was cancelled or failed to capture 8 verified frames.",
             }
     except Exception as e:
-        return {
+        result = {
             "status": "error",
             "message": f"Webcam enrollment failed: {str(e)}. Run 'python -m omnihermes.enroll --name \"{owner_name}\" --primary' from terminal.",
         }
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def handle_omnihermes_configure(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_configure(arguments: Dict[str, Any]) -> str:
     """Configure policy rules."""
     pol = get_policy()
     audit = get_audit()
@@ -154,14 +175,15 @@ def handle_omnihermes_configure(arguments: Dict[str, Any]) -> Dict[str, Any]:
         details={"updated_keys": list(arguments.keys())},
     )
 
-    return {
+    result = {
         "status": "success",
         "message": "Policy configuration successfully updated.",
         "config": updated,
     }
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def handle_omnihermes_audit_logs(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_audit_logs(arguments: Dict[str, Any]) -> str:
     """Retrieve audit history and chain integrity."""
     limit = int(arguments.get("limit", 10))
     verify_chain = bool(arguments.get("verify_chain", True))
@@ -181,25 +203,35 @@ def handle_omnihermes_audit_logs(arguments: Dict[str, Any]) -> Dict[str, Any]:
     if verify_chain:
         res["integrity_check"] = audit.verify_integrity()
 
-    return res
+    return json.dumps(res, ensure_ascii=False, indent=2)
 
 
-def handle_omnihermes_unlock(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_unlock(arguments: Dict[str, Any]) -> str:
     """Unlock workstation for temporary execution window."""
     duration = int(arguments.get("duration_seconds", 120))
-    success = run_unlock_interactive(timeout=300, duration=duration)
+    timeout = min(int(arguments.get("timeout_seconds", 45)), 60)
+    try:
+        success = run_unlock_interactive(timeout=timeout, duration=duration)
+    except Exception as e:
+        success = False
+        reason = f"Error: {str(e)}"
+    else:
+        reason = "Biometric verification failed or was cancelled."
+
     if success:
-        return {
+        result = {
             "status": "success",
             "message": f"Workstation unlocked. High-risk actions will execute without prompt for {duration} seconds.",
             "unlocked": True,
             "duration_seconds": duration,
         }
-    return {
-        "status": "failed",
-        "message": "Biometric verification failed or was cancelled. Workstation remains locked.",
-        "unlocked": False,
-    }
+    else:
+        result = {
+            "status": "failed",
+            "message": f"{reason} Workstation remains locked.",
+            "unlocked": False,
+        }
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
 # Compatibility aliases
