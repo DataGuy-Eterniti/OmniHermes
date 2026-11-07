@@ -46,9 +46,62 @@ class TestHookInterceptor(unittest.TestCase):
         """Live Test: Benign read operation should pass without biometric check."""
         result = omnihermes_gate.on_pre_tool_call(
             tool_name="read_file",
-            arguments={"path": "README.md"},
+            args={"path": "README.md"},
         )
         self.assertEqual(result.get("action"), "allow")
+
+    def test_benign_ls_command_allowed(self):
+        """Benign terminal command like 'ls -la' passes without biometric check."""
+        result = omnihermes_gate.on_pre_tool_call(
+            tool_name="terminal",
+            args={"command": "ls -la"},
+        )
+        self.assertEqual(result.get("action"), "allow")
+
+    def test_exact_session_commands_trigger_guard(self):
+        """Task 4: Exactly tests the two real session commands with args parameter."""
+        cmd1 = 'rmdir /s /q "C:\\Users\\USER\\presence-test\\junk"'
+        cmd2 = "powershell -Command \"Remove-Item -Recurse -Force 'C:\\Users\\USER\\presence-test\\junk'\""
+
+        with patch.object(get_biometrics(), "is_enrolled", return_value=True):
+            with patch("core.ui.BiometricAuthDialog.run_dialog", return_value={
+                "approved": False,
+                "reason": "CANCELLED",
+                "message": "User closed window",
+            }) as mock_dialog:
+                # 1. rmdir /s /q
+                res1 = omnihermes_gate.on_pre_tool_call(
+                    tool_name="terminal",
+                    args={"command": cmd1},
+                )
+                self.assertEqual(res1.get("action"), "block")
+                self.assertTrue(mock_dialog.called)
+
+                # Reset mock
+                mock_dialog.reset_mock()
+
+                # 2. powershell -Command Remove-Item -Recurse -Force
+                res2 = omnihermes_gate.on_pre_tool_call(
+                    tool_name="terminal",
+                    args={"command": cmd2},
+                )
+                self.assertEqual(res2.get("action"), "block")
+                self.assertTrue(mock_dialog.called)
+
+    def test_default_to_safe_on_empty_terminal_args(self):
+        """Task 5: Empty or missing arguments to terminal must fail closed and trigger guard."""
+        with patch.object(get_biometrics(), "is_enrolled", return_value=True):
+            with patch("core.ui.BiometricAuthDialog.run_dialog", return_value={
+                "approved": False,
+                "reason": "TIMEOUT",
+                "message": "Timeout",
+            }) as mock_dialog:
+                res = omnihermes_gate.on_pre_tool_call(
+                    tool_name="terminal",
+                    args={},
+                )
+                self.assertEqual(res.get("action"), "block")
+                self.assertTrue(mock_dialog.called)
 
     def test_omnihermes_self_tools_never_blocked(self):
         """Live Test: OmniHermes management tools should never be blocked."""

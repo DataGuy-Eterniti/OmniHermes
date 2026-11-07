@@ -144,18 +144,25 @@ def on_pre_tool_call(**kwargs) -> Dict[str, Any]:
     Fail-closed: Returns {"action": "block", ...} on any exception, missing camera,
     missing enrollment, headless session, or decision timeout.
     """
-    tool_name = kwargs.get("tool_name", "")
-    raw_args = kwargs.get("args")
-    if raw_args is None:
-        raw_args = kwargs.get("arguments")
+    tool_name = kwargs.get("tool_name", "") or kwargs.get("name", "") or kwargs.get("function_name", "")
+    raw_args = (
+        kwargs.get("args")
+        if kwargs.get("args") is not None
+        else kwargs.get("arguments")
+        if kwargs.get("arguments") is not None
+        else kwargs.get("function_args")
+    )
     if isinstance(raw_args, dict):
         arguments = dict(raw_args)
     elif isinstance(raw_args, str):
         arguments = {"command": raw_args}
+    elif isinstance(raw_args, (list, tuple)):
+        arguments = {"args": list(raw_args), "command": " ".join(str(x) for x in raw_args)}
     else:
         arguments = {}
-    if "command" in kwargs and "command" not in arguments:
-        arguments["command"] = kwargs["command"]
+    for k in ("command", "cmd", "script", "code", "input"):
+        if k in kwargs and k not in arguments:
+            arguments[k] = kwargs[k]
     cmd_summary = f"{tool_name} with params: {json.dumps(arguments, ensure_ascii=False)[:120]}"
     risk_decision = "UNKNOWN"
     display_detected = is_display_detected(kwargs)

@@ -37,16 +37,31 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "patch",
     ],
     "dangerous_terminal_patterns": [
-        r"(?i)\brm\s+-[a-z]*r[a-z]*\b",                   # rm -rf, rm -r, rm -fr, etc.
-        r"(?i)\bdel\b.*(?:\s+/[sfq]|\s+-[sfq])",          # del /s, del /f, del /s /q
-        r"(?i)\brmdir\b.*(?:\s+/[sfq]|\s+-[sfq])",        # rmdir /s, rmdir /s /q
-        r"(?i)\bRemove-Item\b.*-(?:r|recurse|force)\b",    # PowerShell Remove-Item -Recurse
-        r"(?i)\b(?:ri|erase)\b.*-(?:r|recurse|force)\b",  # PowerShell aliases
-        r"(?i)\bgit\s+push\b.*--force\b",
+        # 1. POSIX recursive deletion (rm -rf, rm -r, rm -fr, MSYS paths)
+        r"(?i)\brm\s+-[a-z]*r[a-z]*\b",
+        # 2. Windows folder removal: rmdir /s, rd /s, /q
+        r"(?i)\b(?:rmdir|rd)\b.*?(?:/[sfq]|-[sfq])",
+        # 3. Windows file deletion: del /s, del /q, del /f
+        r"(?i)\bdel\b.*?(?:/[sfq]|-[sfq])",
+        # 4. Windows / DOS erase
+        r"(?i)\berase\b",
+        # 5. PowerShell Remove-Item (-Recurse, -Force, and aliases ri)
+        r"(?i)\bRemove-Item\b.*?(?:-(?:r|recurse|force))\b",
+        r"(?i)\b(?:ri)\b.*?(?:-(?:r|recurse|force))\b",
+        # 6. Disk partitioning and formatting
+        r"(?i)\bformat\b",
+        r"(?i)\bdiskpart\b",
+        # 7. Destructive git commands
+        r"(?i)\bgit\s+push\b.*?--force\b",
+        r"(?i)\bgit\s+reset\b.*?--hard\b",
+        # 8. Package publishing
         r"(?i)\bnpm\s+publish\b",
-        r"(?i)\bcurl\b.*\|\s*(ba)?sh\b",
+        # 9. Remote shell pipe execution
+        r"(?i)\bcurl\b.*?\|\s*(?:ba|z)?sh\b",
+        r"(?i)(?:iwr|Invoke-WebRequest|Invoke-RestMethod|irm)\b.*?\|\s*(?:iex|Invoke-Expression)\b",
+        # 10. Privilege escalation
         r"(?i)\bsudo\b",
-        r"(?i)\bformat\s+[a-z]:",
+        # 11. Database drops
         r"(?i)\bdrop\s+database\b",
         r"(?i)\btruncate\s+table\b",
     ],
@@ -130,7 +145,33 @@ class PolicyEngine:
 
         # 1. Terminal / Shell command inspection
         if tool_name in ["terminal", "bash", "shell", "run_command", "execute_command"]:
-            cmd = str(arguments.get("command", "") or arguments.get("cmd", "") or arguments.get("args", "") or arguments.get("script", "") or json.dumps(arguments))
+            cmd_val = (
+                arguments.get("command")
+                or arguments.get("cmd")
+                or arguments.get("args")
+                or arguments.get("script")
+                or arguments.get("input")
+                or ""
+            )
+            if isinstance(cmd_val, dict):
+                cmd_val = (
+                    cmd_val.get("command")
+                    or cmd_val.get("cmd")
+                    or cmd_val.get("args")
+                    or json.dumps(cmd_val)
+                )
+            elif isinstance(cmd_val, (list, tuple)):
+                cmd_val = " ".join(str(x) for x in cmd_val)
+            cmd = str(cmd_val or "").strip()
+
+            # Default to safe: if the risk check can't parse a terminal command or arguments are empty, treat as risky
+            if not cmd or cmd == "{}" or cmd == "None":
+                return {
+                    "requires_biometric": True,
+                    "risk_level": "HIGH",
+                    "reason": "Terminal command is empty or could not be parsed; defaulting to safe.",
+                }
+
             for pattern in self.config.get("dangerous_terminal_patterns", []):
                 if re.search(pattern, cmd):
                     return {
