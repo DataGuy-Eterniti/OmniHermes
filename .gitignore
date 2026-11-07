@@ -23,3 +23,15 @@ audit*.log
 
 __pycache__/
 *.pyc
+
+.data/
+*.onnx
+*.task
+__pycache__/
+*.pyc
+*.log
+*.enc
+*.bak
+unlock*.json
+profiles/
+.env
