@@ -108,8 +108,8 @@ class UnlockManager:
         self._save_state()
 
 
-def run_unlock_interactive(timeout: int = 45, duration: int = 120, camera_idx: int = 0) -> bool:
-    """Run interactive biometric unlock with responsive 45-second timeout."""
+def run_unlock_interactive(timeout: int = 300, duration: int = 120, camera_idx: int = 0) -> bool:
+    """Run interactive biometric unlock with relaxed 300-second timeout."""
     from omnihermes.verify import run_verify
     from omnihermes.tools import get_presence
 
@@ -140,7 +140,7 @@ def run_unlock_interactive(timeout: int = 45, duration: int = 120, camera_idx: i
 
 def main():
     parser = argparse.ArgumentParser(description="OmniHermes - Workstation Unlock")
-    parser.add_argument("--timeout", type=int, default=45, help="Verification timeout in seconds (default: 45s)")
+    parser.add_argument("--timeout", type=int, default=300, help="Verification timeout in seconds (default: 300s)")
     parser.add_argument("--duration", type=int, default=120, help="Unlock duration in seconds (default: 120s)")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")
 

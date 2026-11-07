@@ -117,6 +117,7 @@ def handle_omnihermes_status(arguments: Dict[str, Any]) -> str:
         "audit_chain": {
             "valid": integrity["valid"],
             "count": integrity.get("count", 0),
+            "status": "EMPTY" if integrity.get("count", 0) == 0 else ("VERIFIED" if integrity["valid"] else "INVALID"),
             "message": integrity.get("message", ""),
         },
     }
@@ -209,7 +210,7 @@ def handle_omnihermes_audit_logs(arguments: Dict[str, Any]) -> str:
 def handle_omnihermes_unlock(arguments: Dict[str, Any]) -> str:
     """Unlock workstation for temporary execution window."""
     duration = int(arguments.get("duration_seconds", 120))
-    timeout = min(int(arguments.get("timeout_seconds", 45)), 60)
+    timeout = int(arguments.get("timeout_seconds", 300))
     try:
         success = run_unlock_interactive(timeout=timeout, duration=duration)
     except Exception as e:

@@ -367,7 +367,8 @@ def handle_omnihermes_slash_command(raw_args: str = "", **kwargs: Any) -> str:
     subcmd = cmd.split()[0] if cmd else "status"
 
     if subcmd == "status":
-        res = handle_omnihermes_status({})
+        raw_res = handle_omnihermes_status({})
+        res = json.loads(raw_res) if isinstance(raw_res, str) else raw_res
         enrolled = res.get("enrolled", False)
         owner_name = res.get("owner_info", {}).get("owner_name", "None") if enrolled else "None"
         policy_mode = res.get("policy", {}).get("mode", "strict")
@@ -376,28 +377,41 @@ def handle_omnihermes_slash_command(raw_args: str = "", **kwargs: Any) -> str:
         audit_valid = res.get("audit_chain", {}).get("valid", False)
         audit_count = res.get("audit_chain", {}).get("count", 0)
 
+        if audit_count == 0:
+            audit_display = "EMPTY (0 entries)"
+        elif audit_valid:
+            audit_display = f"VERIFIED ✔ ({audit_count} entries)"
+        else:
+            audit_display = f"INVALID ✖ ({audit_count} entries)"
+
         lines = [
             "🛡️ OmniHermes Security Gate Status:",
             f"• Enrolled Owner: {owner_name} (Enrolled: {enrolled})",
             f"• Policy Mode: {policy_mode}",
             f"• Execution Window: {'ACTIVE (' + str(rem) + 's remaining)' if unlocked else 'Locked'}",
-            f"• Cryptographic Audit Chain: {'VERIFIED ✔' if audit_valid else 'INVALID ✖'} ({audit_count} entries)",
+            f"• Cryptographic Audit Chain: {audit_display}",
         ]
         return "\n".join(lines)
 
     elif subcmd == "unlock":
         from omnihermes.unlock import run_unlock_interactive
-        success = run_unlock_interactive(timeout=300, duration=120)
+        try:
+            success = run_unlock_interactive(timeout=300, duration=120)
+        except Exception as e:
+            return f"OmniHermes: Unlock failed with error: {str(e)}"
         if success:
-            return "✔ OmniHermes: Workstation unlocked for 120 seconds. Risky commands will execute without prompt."
-        return "✖ OmniHermes: Biometric unlock failed or was cancelled."
+            return "OmniHermes: Workstation unlocked for 120 seconds. Risky commands will execute without prompt."
+        return "OmniHermes: Biometric unlock failed or was cancelled."
 
     elif subcmd == "enroll":
         from omnihermes.enroll import run_enrollment
-        success = run_enrollment(name="Elijah", is_primary=True)
+        try:
+            success = run_enrollment(name="Elijah", is_primary=True, replace=True)
+        except Exception as e:
+            return f"OmniHermes: Enrollment failed: {str(e)}"
         if success:
-            return "✔ OmniHermes: Biometric enrollment completed successfully."
-        return "✖ OmniHermes: Biometric enrollment failed or was cancelled."
+            return "OmniHermes: Biometric enrollment completed successfully."
+        return "OmniHermes: Biometric enrollment failed or was cancelled."
 
     else:
         return (

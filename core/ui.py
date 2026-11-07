@@ -84,13 +84,20 @@ class BiometricAuthDialog:
         root.attributes("-topmost", True)
         root.lift()
         root.focus_force()
+        root.after(300, lambda: root.attributes("-topmost", True))
 
         if os.name == "nt":
+            try:
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            except Exception:
+                pass
             try:
                 import ctypes
                 root.update_idletasks()
                 hwnd_named = ctypes.windll.user32.FindWindowW(None, window_title)
                 if hwnd_named:
+                    ctypes.windll.user32.ShowWindow(hwnd_named, 9)
                     ctypes.windll.user32.SetForegroundWindow(hwnd_named)
             except Exception:
                 pass

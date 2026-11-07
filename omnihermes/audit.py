@@ -48,6 +48,8 @@ class AuditLogger:
         except Exception:
             return "0" * 64
 
+    _get_last_hash = _get_tip_hash
+
     def log_event(
         self,
         event_type: str,
@@ -63,6 +65,7 @@ class AuditLogger:
         tool_name = kwargs.get("tool_name", "")
         action_summary = kwargs.get("action_summary", action)
         confidence = kwargs.get("confidence", similarity_score)
+        self._last_hash = self._get_tip_hash()
 
         entry_body = {
             "timestamp": time.time(),
@@ -91,7 +94,7 @@ class AuditLogger:
     def verify_integrity(self) -> Dict[str, Any]:
         """Verify the cryptographic hash chain of the audit log."""
         if not self.log_path.exists() or self.log_path.stat().st_size == 0:
-            return {"valid": True, "count": 0, "message": "Audit chain empty."}
+            return {"valid": True, "count": 0, "status": "EMPTY", "message": "Audit chain empty."}
 
         expected_prev = "0" * 64
         count = 0
@@ -109,6 +112,8 @@ class AuditLogger:
                     msg = f"Hash chain broken at index {idx}: expected prev {expected_prev}, got {recorded_prev}"
                     return {
                         "valid": False,
+                        "count": count,
+                        "status": "INVALID",
                         "broken_at_index": idx,
                         "message": msg,
                         "error": f"Tampered record detected at line {idx}: {msg}",
@@ -122,6 +127,8 @@ class AuditLogger:
                     msg = f"Record tampered at index {idx}: hash mismatch"
                     return {
                         "valid": False,
+                        "count": count,
+                        "status": "INVALID",
                         "broken_at_index": idx,
                         "message": msg,
                         "error": f"Tampered record detected at line {idx}: {msg}",
@@ -134,7 +141,8 @@ class AuditLogger:
             "valid": True,
             "count": count,
             "entries_checked": count,
+            "status": "VERIFIED" if count > 0 else "EMPTY",
             "tip_hash": expected_prev,
-            "message": f"Cryptographic integrity verified across {count} records.",
+            "message": f"Cryptographic integrity verified across {count} records." if count > 0 else "Audit chain empty.",
         }
 
