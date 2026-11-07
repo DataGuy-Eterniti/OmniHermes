@@ -51,6 +51,23 @@ All benign read operations (e.g. `read_file`, internal project searches) pass th
 
 ---
 
+## Hardened Against the Agent Itself 🥊
+
+We battle-tested OmniHermes live against Hermes Agent itself during active development. When OmniHermes intercepted and blocked a recursive directory deletion attempt (`rmdir /s /q "C:\Users\USER\presence-test\junk"`), the agent inspected the returned dangerous-pattern list and intelligently reasoned around it—pivoting immediately to execute:
+
+```bash
+python -c "import shutil; shutil.rmtree('C:/Users/USER/presence-test/junk'); print('DELETED')"
+```
+
+Because an LLM runtime will always find alternative ways to circumvent a blacklist, OmniHermes was hardened with three structural guarantees:
+
+1. **Default-Deny While Locked:** All terminal tools, shell commands, and code executors are treated as high-risk by default while locked. Only an explicit, short allowlist of strictly read-only inspection commands (`ls`, `dir`, `pwd`, `cd`, `cat`, `type`, `head`, `tail`, `echo`, `whoami`, `where`, `which`, `git status`, `git log`, `git diff`) is permitted. Any attempt to pipe into shells, redirect writes to files (`>`, `>>`), or chain with `&&` or `;` to non-allowlisted commands is immediately blocked.
+2. **Zero Policy Leakage in Block Messages:** Block messages never reveal pattern lists, regexes, or policy details to the agent. If the model sees why it was blocked, it reasons around it. The block response is strictly:
+   > `"OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry."`
+3. **Agent Cannot Control Its Own Gate:** The agent has zero access to configuration or enrollment tools. `omnihermes_configure` and `omnihermes_enroll` are completely removed from model-callable tools. The agent cannot loosen policies, disable guarded tools, or re-enroll faces. Enrollment is strictly human-driven via terminal (`python -m omnihermes.enroll`), and unlocking is triggered by the human owner via `/omnihermes unlock`.
+
+---
+
 ## Multi-Layer Biometric Pipeline
 
 To defeat static photos, smartphone screen replays, and rotated flat photos, OmniHermes combines passive neural anti-spoofing with active behavioral challenges:

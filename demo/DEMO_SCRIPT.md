@@ -42,7 +42,7 @@
 
 ---
 
-### 0:25 – 0:45 | Scene 3: High-Risk Shell Command & Live Face Authorization
+### 0:25 – 0:40 | Scene 3: High-Risk Shell Command & Live Face Authorization
 - **Action:** Ask Hermes to execute a dangerous command:
   ```text
   "Hermes, delete the test_dir folder using rm -rf"
@@ -58,7 +58,18 @@
 
 ---
 
-### 0:45 – 0:60 | Scene 4: Impostor & Photo Spoof Rejection
+### 0:40 – 0:50 | Scene 4: Hardened Against Agent Evasion (Default-Deny)
+- **Action:** Show agent attempting evasion when locked:
+  ```text
+  python -c "import shutil; shutil.rmtree('test_dir')"
+  ```
+- **Visual:** Hermes tries to circumvent the block with an inline Python script. OmniHermes's default-deny immediately catches and blocks it, returning a sanitized message with zero rule leakage.
+- **Narration:**  
+  *"When Hermes tried to reason around a blocked command using Python's shutil, our default-deny caught it. OmniHermes never leaks rules to the agent, blocks non-allowlisted commands while locked, and prevents the agent from reconfiguring its own gate."*
+
+---
+
+### 0:50 – 0:62 | Scene 5: Impostor & Photo Spoof Rejection
 - **Action:**
   1. Have a second person attempt an action $\rightarrow$ rejected (`REJECTED_IMPOSTOR`, similarity < 0.3630).
   2. Hold up Elijah's photo on a phone screen $\rightarrow$ rejected (`REJECTED_LIVENESS_FAILED`, zero dynamic Eye Aspect Ratio movement, challenge fails).
@@ -67,17 +78,17 @@
 
 ---
 
-### 0:60 – 0:75 | Scene 5: Desk Absence Tracking
+### 0:62 – 0:75 | Scene 6: Desk Absence Tracking
 - **Action:** Elijah steps away from the chair. The status indicator switches to `🔒 OmniHermes: Away (Locked)`.
 - **Action:** Issue another sensitive command (e.g. `npm publish`).
 - **Visual:** Action is quarantined instantly:  
-  `"OmniHermes: action 'terminal' paused: workstation owner is away. OmniHermes: verify with /omnihermes unlock, then ask me to retry."`
+  `"OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry."`
 - **Narration:**  
   *"If I step away from my desk, OmniHermes automatically quarantines dangerous operations until I return."*
 
 ---
 
-### 0:75 – 0:90 | Scene 6: Cryptographic Audit Ledger & Conclusion
+### 0:75 – 0:90 | Scene 7: Cryptographic Audit Ledger & Conclusion
 - **Action:** View the audit log:
   ```bash
   python -c "from omnihermes.audit import AuditLogger; print(AuditLogger().verify_integrity())"

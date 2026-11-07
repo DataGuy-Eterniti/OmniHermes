@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import __init__ as omnihermes_gate
 import omnihermes.tools as tools
 from core.audit import AuditLogger
-from omnihermes.tools import get_biometrics, get_policy, get_presence, handle_omnihermes_enroll
+from omnihermes.tools import get_biometrics, get_policy, get_presence, handle_omnihermes_enroll, reset_singletons
 
 
 class TestHookInterceptor(unittest.TestCase):
@@ -280,8 +280,12 @@ class TestHookInterceptor(unittest.TestCase):
 
             # 3. Simulate expiry after 120s
             mgr = get_unlock_manager()
-            mgr._unlocked_until = time.time() - 5.0
-            mgr._save_state()
+            from omnihermes.unlock import write_unlock_state_atomic
+            write_unlock_state_atomic(mgr.state_file, {
+                "unlocked_until": time.time() - 5.0,
+                "verified_at": time.time() - 125.0,
+                "owner": "Elijah",
+            })
 
             # 4. Same risky call after 120s -> blocked
             res2 = omnihermes_gate.on_pre_tool_call(
@@ -293,6 +297,57 @@ class TestHookInterceptor(unittest.TestCase):
                 res2.get("message"),
                 "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
             )
+
+    def test_shared_durable_unlock_file_and_telemetry(self):
+        """User Requirement: write an unlock file, call the hook from fresh import path, confirm allows; after expiry blocks."""
+        from omnihermes.unlock import write_unlock_state_atomic
+        state_file = self.data_dir / "unlock_state.json"
+
+        # 1. Write an unlock file directly to disk with active window
+        write_unlock_state_atomic(state_file, {
+            "unlocked_until": time.time() + 120.0,
+            "verified_at": time.time(),
+            "owner": "Elijah",
+        })
+
+        # 2. Invoke hook as if from a fresh process / fresh import path
+        reset_singletons(self.data_dir)
+        with patch.object(get_biometrics(), "is_enrolled", return_value=True):
+            res_allow = omnihermes_gate.on_pre_tool_call(
+                tool_name="terminal",
+                arguments={"command": "rmdir /s /q testdir"},
+            )
+            self.assertEqual(res_allow.get("action"), "allow")
+
+            # Verify telemetry was logged with all 7 fields
+            self.assertTrue(omnihermes_gate.DEBUG_LOG_PATH.exists())
+            with open(omnihermes_gate.DEBUG_LOG_PATH, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("tool='terminal'", content)
+            self.assertIn("decision='allow'", content)
+            self.assertIn("state_file=", content)
+            self.assertIn("unlocked_until=", content)
+            self.assertIn("seconds_left=", content)
+            self.assertIn("away_status='PRESENT'", content)
+
+            # 3. Write an expired state to disk
+            write_unlock_state_atomic(state_file, {
+                "unlocked_until": time.time() - 10.0,
+                "verified_at": time.time() - 130.0,
+                "owner": "Elijah",
+            })
+            reset_singletons(self.data_dir)
+
+            with patch.object(get_biometrics(), "is_enrolled", return_value=True):
+                res_block = omnihermes_gate.on_pre_tool_call(
+                    tool_name="terminal",
+                    arguments={"command": "rmdir /s /q testdir"},
+                )
+                self.assertEqual(res_block.get("action"), "block")
+                self.assertEqual(
+                    res_block.get("message"),
+                    "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+                )
 
     def test_unlock_revoked_when_away(self):
         """Stepping away immediately revokes an active unlock window."""
@@ -322,7 +377,9 @@ class TestHookInterceptor(unittest.TestCase):
         with open(omnihermes_gate.DEBUG_LOG_PATH, "r", encoding="utf-8") as f:
             lines = f.readlines()
         self.assertGreater(len(lines), 0)
-        last_line = lines[-1]
+        debug_lines = [l for l in lines if "return=" in l]
+        self.assertGreater(len(debug_lines), 0)
+        last_line = debug_lines[-1]
         self.assertIn("read_file", last_line)
         self.assertIn("LOW_RISK", last_line)
         self.assertIn("return=", last_line)

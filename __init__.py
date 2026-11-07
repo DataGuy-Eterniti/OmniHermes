@@ -84,6 +84,34 @@ except (ImportError, ValueError):
 DEBUG_LOG_PATH = Path.home() / ".hermes" / "omnihermes" / "hook_debug.log"
 
 
+def log_hook_telemetry(
+    tool: str,
+    decision: str,
+    state_file: Any,
+    unlocked_until: float,
+    now: float,
+    seconds_left: float,
+    away_status: str,
+) -> None:
+    """Log structured hook telemetry line per user requirement:
+    tool, decision, state file path, unlocked_until, now, seconds left, away status.
+    """
+    try:
+        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        pid = os.getpid()
+        clean_state_file = str(state_file).replace("\\", "/")
+        line = (
+            f"[{ts}] [PID:{pid}] tool='{tool}' decision='{decision}' "
+            f"state_file='{clean_state_file}' unlocked_until={unlocked_until:.2f} "
+            f"now={now:.2f} seconds_left={seconds_left:.1f} away_status='{away_status}'\n"
+        )
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
 def log_hook_debug(
     tool_name: str,
     summary: str,
@@ -149,6 +177,12 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
     display_detected = False
     return_val: Dict[str, Any] = {"action": "block", "message": "OmniHermes: unhandled security check."}
 
+    now_ts = time.time()
+    unlocked_until_ts = 0.0
+    seconds_left = 0.0
+    away_status = "UNKNOWN"
+    state_file_path = Path.home() / ".hermes" / "omnihermes" / "unlock_state.json"
+
     try:
         raw_args = args if args is not None else kwargs.get("arguments") or kwargs.get("function_args")
         if isinstance(raw_args, dict):
@@ -177,6 +211,15 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
         presence = get_presence()
         biometrics = get_biometrics()
         unlock_mgr = get_unlock_manager()
+
+        # Re-read unlock state fresh from disk on every call (zero in-memory caching)
+        unlock_state = unlock_mgr.get_state()
+        state_file_path = unlock_mgr.state_file
+        now_ts = time.time()
+        unlocked_until_ts = float(unlock_state.get("unlocked_until", 0.0))
+        seconds_left = max(0.0, unlocked_until_ts - now_ts)
+        is_away = presence.is_away()
+        away_status = "AWAY" if is_away else "PRESENT"
 
         risk_assessment = policy.assess_risk(tool_name, arguments)
         if not risk_assessment["requires_biometric"]:
@@ -223,14 +266,15 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
             }
             return return_val
 
-        # 3. Check active unlock grace window (ends early if owner is away)
-        if unlock_mgr.is_unlocked(is_away=presence.is_away()):
+        # 3. Check active unlock grace window (ends early if owner is confirmed away)
+        # Durable disk file check re-evaluated on every call
+        if unlock_mgr.is_unlocked(is_away=is_away):
             rem_s = unlock_mgr.get_remaining_seconds()
             log_msg = f"allowed: unlock window active, {rem_s} s left"
             risk_decision = log_msg
             audit.log_event(
                 event_type="INTERCEPT_APPROVED_UNLOCKED",
-                user_name="PrimaryOwner",
+                user_name=unlock_state.get("owner", "PrimaryOwner"),
                 tool_name=tool_name,
                 action_summary=action_summary,
                 result="APPROVED_UNLOCKED",
@@ -238,14 +282,6 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
                 liveness_score=1.0,
                 details={"risk_level": risk_level, "remaining_seconds": rem_s, "message": log_msg},
             )
-            try:
-                DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-                pid = os.getpid()
-                with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-                    f.write(f"[{ts}] [PID:{pid}] tool='{tool_name}' allowed: unlock window active, {rem_s} s left\n")
-            except Exception:
-                pass
             return_val = {"action": "allow"}
             return return_val
 
@@ -359,6 +395,15 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
             risk_decision=risk_decision,
             display_detected=display_detected,
             return_value=return_val,
+        )
+        log_hook_telemetry(
+            tool=tool_name,
+            decision=return_val.get("action", "unknown"),
+            state_file=state_file_path,
+            unlocked_until=unlocked_until_ts,
+            now=now_ts,
+            seconds_left=seconds_left,
+            away_status=away_status,
         )
 
 

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -18,45 +20,54 @@ from omnihermes.audit import AuditLogger
 from omnihermes.models import get_default_data_dir, assert_not_real_data_dir
 
 
+def read_unlock_state(state_file: Path) -> Dict[str, Any]:
+    """Read unlock state from disk on demand. Zero in-memory caching."""
+    if not state_file.exists():
+        return {"unlocked_until": 0.0, "verified_at": 0.0, "owner": ""}
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {
+            "unlocked_until": float(data.get("unlocked_until", 0.0)),
+            "verified_at": float(data.get("verified_at", 0.0)),
+            "owner": str(data.get("owner", data.get("unlocked_by", ""))),
+        }
+    except Exception:
+        return {"unlocked_until": 0.0, "verified_at": 0.0, "owner": ""}
+
+
+def write_unlock_state_atomic(state_file: Path, data: Dict[str, Any]) -> None:
+    """Write unlock state atomically using a temp file on the same directory + os.replace."""
+    assert_not_real_data_dir(state_file, operation="save_unlock_state")
+    try:
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=str(state_file.parent), prefix="unlock_", suffix=".tmp"
+        )
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(temp_path, state_file)
+    except Exception:
+        pass
+
+
 class UnlockManager:
-    """Manages temporary unlock grace windows."""
+    """Manages temporary unlock grace windows backed by a durable on-disk file."""
 
     def __init__(self, data_dir: Optional[Path] = None):
         self.data_dir = data_dir or get_default_data_dir()
         self.state_file = self.data_dir / "unlock_state.json"
-        self._unlocked_until: float = 0.0
-        self._unlocked_by: str = ""
-        self._load_state()
 
-    def _load_state(self) -> None:
-        if not self.state_file.exists():
-            return
-        try:
-            with open(self.state_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self._unlocked_until = float(data.get("unlocked_until", 0.0))
-            self._unlocked_by = str(data.get("unlocked_by", ""))
-        except Exception:
-            self._unlocked_until = 0.0
-
-    def _save_state(self) -> None:
-        assert_not_real_data_dir(self.state_file, operation="save_unlock_state")
-        try:
-            self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"unlocked_until": self._unlocked_until, "unlocked_by": self._unlocked_by},
-                    f,
-                    indent=2,
-                )
-        except Exception:
-            pass
+    def get_state(self) -> Dict[str, Any]:
+        """Read the state file fresh from disk on every call. No in-memory caching."""
+        return read_unlock_state(self.state_file)
 
     def is_unlocked(self, is_away: bool = False) -> bool:
-        """Check if unlock window is currently active. Revokes if away."""
-        self._load_state()
+        """Check if unlock window is currently active. Always re-reads state file on every call."""
+        state = self.get_state()
         now = time.time()
-        if now >= self._unlocked_until:
+        unlocked_until = state["unlocked_until"]
+        if now >= unlocked_until:
             return False
 
         if is_away:
@@ -67,18 +78,23 @@ class UnlockManager:
 
     def get_remaining_seconds(self) -> int:
         """Get seconds remaining on active unlock window."""
-        self._load_state()
-        remaining = int(self._unlocked_until - time.time())
+        state = self.get_state()
+        now = time.time()
+        remaining = int(state["unlocked_until"] - now)
         return max(0, remaining)
 
     def grant_unlock(self, user_name: str, duration_seconds: int = 120) -> Dict[str, Any]:
-        """Grant an execution unlock window and log to audit ledger."""
+        """Grant an execution unlock window and persist atomically."""
         now = time.time()
-        self._unlocked_until = now + duration_seconds
-        self._unlocked_by = user_name
-        self._save_state()
+        unlocked_until = now + duration_seconds
+        state_data = {
+            "unlocked_until": unlocked_until,
+            "verified_at": now,
+            "owner": user_name,
+        }
+        write_unlock_state_atomic(self.state_file, state_data)
 
-        # Unlock definitively marks user present and resets away-detection
+        # Successful verification resets away-detection to PRESENT
         try:
             from core.away import PresenceMonitor
             pres = PresenceMonitor(data_dir=self.data_dir)
@@ -92,30 +108,33 @@ class UnlockManager:
             user_name=user_name,
             action=f"Grant {duration_seconds}s execution window",
             result="UNLOCKED",
-            details={"duration_seconds": duration_seconds, "expires_at": self._unlocked_until},
+            details={"duration_seconds": duration_seconds, "expires_at": unlocked_until},
         )
 
         return {
             "unlocked": True,
             "duration_seconds": duration_seconds,
-            "expires_at": self._unlocked_until,
-            "unlocked_by": user_name,
+            "expires_at": unlocked_until,
+            "owner": user_name,
         }
 
     def revoke(self, reason: str = "EXPIRED") -> None:
         """Revoke active unlock window immediately."""
-        if self._unlocked_until > 0.0:
+        state = self.get_state()
+        if state["unlocked_until"] > 0.0:
             audit = AuditLogger(data_dir=self.data_dir)
             audit.log_event(
                 event_type="UNLOCK_REVOKED",
-                user_name=self._unlocked_by or "System",
+                user_name=state["owner"] or "System",
                 action="Revoke execution window",
                 result=reason,
                 details={"reason": reason},
             )
-        self._unlocked_until = 0.0
-        self._unlocked_by = ""
-        self._save_state()
+        write_unlock_state_atomic(self.state_file, {
+            "unlocked_until": 0.0,
+            "verified_at": 0.0,
+            "owner": "",
+        })
 
 
 def run_unlock_interactive(timeout: int = 300, duration: int = 120, camera_idx: int = 0) -> bool:

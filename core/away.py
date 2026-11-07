@@ -1,13 +1,15 @@
 """Away Detection and Continuous Presence Monitor for Omnihermes.
 
 Monitors owner presence in front of the workstation. If the owner departs
-for longer than `away_timeout_seconds`, all high-risk actions are automatically
-quarantined until physical presence is re-verified.
+for longer than `away_timeout_seconds` as confirmed by active camera checks,
+all high-risk actions are quarantined until physical presence is re-verified.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -25,6 +27,7 @@ class PresenceMonitor:
         self._last_seen_timestamp: float = time.time()
         self._is_monitoring: bool = False
         self._last_verified_user: Optional[str] = None
+        self._camera_confirmed_away: bool = False
         self._load_state()
 
     def _load_state(self) -> None:
@@ -36,43 +39,55 @@ class PresenceMonitor:
                 data = json.load(f)
             self._last_seen_timestamp = float(data.get("last_seen_timestamp", self._last_seen_timestamp))
             self._last_verified_user = data.get("verified_user", self._last_verified_user)
+            self._camera_confirmed_away = bool(data.get("camera_confirmed_away", False))
         except Exception:
             pass
 
     def _save_state(self) -> None:
-        """Persist presence state to disk."""
+        """Persist presence state to disk atomically using tempfile + os.replace."""
         assert_not_real_data_dir(self.state_file, operation="save_presence_state")
         try:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.state_file, "w", encoding="utf-8") as f:
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=str(self.state_file.parent), prefix="presence_", suffix=".tmp"
+            )
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
                 json.dump(
                     {
                         "last_seen_timestamp": self._last_seen_timestamp,
                         "verified_user": self._last_verified_user,
+                        "camera_confirmed_away": self._camera_confirmed_away,
                     },
                     f,
                     indent=2,
                 )
+            os.replace(temp_path, self.state_file)
         except Exception:
             pass
 
     def mark_seen(self, user_name: Optional[str] = None) -> None:
-        """Update last seen timestamp when owner face is positively detected."""
+        """Update last seen timestamp when owner face is positively detected or unlocked."""
         self._last_seen_timestamp = time.time()
+        self._camera_confirmed_away = False
         if user_name:
             self._last_verified_user = user_name
         self._save_state()
 
     def mark_away(self) -> None:
-        """Explicitly trigger away state (e.g. on screen lock or manual away button)."""
+        """Explicitly trigger away state (active camera confirmed absence or manual lock)."""
         self._last_seen_timestamp = 0.0
+        self._camera_confirmed_away = True
         self._save_state()
 
     def is_away(self) -> bool:
-        """Check if the owner is currently considered away from the desk."""
+        """Check if the owner is confirmed away from the desk.
+        
+        Per security policy: away-detection may only revoke an unlock if it actually
+        ran a camera check and saw no face for the configured time. It must NEVER
+        revoke based on 'no data' (elapsed time without camera verification).
+        """
         self._load_state()
-        elapsed = time.time() - self._last_seen_timestamp
-        return elapsed > self.timeout_seconds
+        return bool(self._camera_confirmed_away)
 
     def get_status(self) -> Dict[str, Any]:
         """Return current presence monitor status."""
@@ -84,5 +99,6 @@ class PresenceMonitor:
             "last_seen_seconds_ago": round(max(0.0, elapsed), 1),
             "timeout_threshold_seconds": self.timeout_seconds,
             "verified_user": self._last_verified_user,
+            "camera_confirmed_away": self._camera_confirmed_away,
         }
 
