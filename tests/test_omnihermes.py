@@ -137,6 +137,12 @@ class TestOmniHermesEngine(unittest.TestCase):
         self.assertIsInstance(res_status, str, "handle_omnihermes_status must return str")
         data_status = json.loads(res_status)
         self.assertIn("status", data_status)
+        self.assertIn("locked", data_status)
+        self.assertIn("unlocked", data_status)
+        self.assertIn("remaining_seconds", data_status)
+        self.assertIn("owner_name", data_status)
+        self.assertNotIn("policy", data_status)
+        self.assertNotIn("guarded_tools", data_status)
 
         # 2. Enroll (mock embedding mode)
         res_enroll = handle_omnihermes_enroll({"owner_name": "TestUser", "test_embedding": [0.05] * 128})

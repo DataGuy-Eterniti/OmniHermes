@@ -17,9 +17,6 @@ python_dependencies:
 
 provides_tools:
   - omnihermes_status
-  - omnihermes_enroll
-  - omnihermes_configure
-  - omnihermes_audit_logs
   - omnihermes_unlock
 
 provides_hooks:

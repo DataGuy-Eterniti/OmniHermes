@@ -370,27 +370,16 @@ def handle_omnihermes_slash_command(raw_args: str = "", **kwargs: Any) -> str:
     if subcmd == "status":
         raw_res = handle_omnihermes_status({})
         res = json.loads(raw_res) if isinstance(raw_res, str) else raw_res
-        enrolled = res.get("enrolled", False)
-        owner_name = res.get("owner_info", {}).get("owner_name", "None") if enrolled else "None"
-        policy_mode = res.get("policy", {}).get("mode", "strict")
-        unlocked = res.get("unlock_window", {}).get("unlocked", False)
-        rem = res.get("unlock_window", {}).get("remaining_seconds", 0)
-        audit_valid = res.get("audit_chain", {}).get("valid", False)
-        audit_count = res.get("audit_chain", {}).get("count", 0)
-
-        if audit_count == 0:
-            audit_display = "EMPTY (0 entries)"
-        elif audit_valid:
-            audit_display = f"VERIFIED ✔ ({audit_count} entries)"
-        else:
-            audit_display = f"INVALID ✖ ({audit_count} entries)"
+        owner_name = res.get("owner_name", "None")
+        unlocked = res.get("unlocked", False)
+        rem = res.get("remaining_seconds", 0)
+        lock_state = f"Unlocked ({rem}s remaining)" if unlocked else "Locked"
 
         lines = [
             "🛡️ OmniHermes Security Gate Status:",
-            f"• Enrolled Owner: {owner_name} (Enrolled: {enrolled})",
-            f"• Policy Mode: {policy_mode}",
-            f"• Execution Window: {'ACTIVE (' + str(rem) + 's remaining)' if unlocked else 'Locked'}",
-            f"• Cryptographic Audit Chain: {audit_display}",
+            f"• Gate State: {lock_state}",
+            f"• Time Remaining: {rem}s" if unlocked else "• Time Remaining: 0s",
+            f"• Enrolled Owner: {owner_name}",
         ]
         return "\n".join(lines)
 
@@ -426,30 +415,12 @@ def handle_omnihermes_slash_command(raw_args: str = "", **kwargs: Any) -> str:
 
 def register(ctx: Any) -> None:
     """Hermes Agent plugin registration entrypoint."""
-    # Register tool handlers and schemas
+    # Register tool handlers exposed to the model (only status and unlock; agent cannot modify its own gate)
     ctx.register_tool(
         name="omnihermes_status",
         toolset="omnihermes",
         schema=OMNIHERMES_STATUS_SCHEMA,
         handler=handle_omnihermes_status,
-    )
-    ctx.register_tool(
-        name="omnihermes_enroll",
-        toolset="omnihermes",
-        schema=OMNIHERMES_ENROLL_SCHEMA,
-        handler=handle_omnihermes_enroll,
-    )
-    ctx.register_tool(
-        name="omnihermes_configure",
-        toolset="omnihermes",
-        schema=OMNIHERMES_CONFIGURE_SCHEMA,
-        handler=handle_omnihermes_configure,
-    )
-    ctx.register_tool(
-        name="omnihermes_audit_logs",
-        toolset="omnihermes",
-        schema=OMNIHERMES_AUDIT_LOGS_SCHEMA,
-        handler=handle_omnihermes_audit_logs,
     )
     ctx.register_tool(
         name="omnihermes_unlock",

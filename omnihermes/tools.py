@@ -87,39 +87,29 @@ def get_presence() -> PresenceMonitor:
 
 
 def handle_omnihermes_status(arguments: Dict[str, Any]) -> str:
-    """Report overall security status of OmniHermes."""
+    """Report overall security status of OmniHermes.
+    
+    Returns strictly lock state, time remaining, and owner name.
+    Does not expose rules, patterns, or configuration details to the model.
+    """
     bio = get_biometrics()
-    pol = get_policy()
-    audit = get_audit()
     pres = get_presence()
     unlock_mgr = get_unlock_manager()
 
-    integrity = audit.verify_integrity()
-    presence_status = pres.get_status()
-    owner_info = bio.get_owner_info() if bio.is_enrolled() else None
+    owner_name = "None"
+    if bio.is_enrolled():
+        owner_info = bio.get_owner_info()
+        owner_name = owner_info.get("owner_name", "Unknown") if owner_info else "Unknown"
+
+    unlocked = unlock_mgr.is_unlocked(is_away=pres.is_away())
+    remaining_seconds = unlock_mgr.get_remaining_seconds() if unlocked else 0
 
     result = {
-        "status": "active" if pol.config.get("enabled", True) else "disabled",
-        "enrolled": bio.is_enrolled(),
-        "owner_info": owner_info,
-        "policy": {
-            "mode": pol.config.get("mode", "strict"),
-            "guarded_tools_count": len(pol.config.get("guarded_tools", [])),
-            "guarded_tools": pol.config.get("guarded_tools", []),
-            "min_match_confidence": bio.cosine_threshold,
-            "min_liveness_score": pol.config.get("min_liveness_score", 0.80),
-        },
-        "presence": presence_status,
-        "unlock_window": {
-            "unlocked": unlock_mgr.is_unlocked(is_away=pres.is_away()),
-            "remaining_seconds": unlock_mgr.get_remaining_seconds(),
-        },
-        "audit_chain": {
-            "valid": integrity["valid"],
-            "count": integrity.get("count", 0),
-            "status": "EMPTY" if integrity.get("count", 0) == 0 else ("VERIFIED" if integrity["valid"] else "INVALID"),
-            "message": integrity.get("message", ""),
-        },
+        "status": "unlocked" if unlocked else "locked",
+        "locked": not unlocked,
+        "unlocked": unlocked,
+        "remaining_seconds": remaining_seconds,
+        "owner_name": owner_name,
     }
     return json.dumps(result, ensure_ascii=False, indent=2)
 
