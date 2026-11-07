@@ -389,9 +389,14 @@ def run_verify(
                 show_debug = not show_debug
 
             # Early Definite Rejections
-            # 1. Definite Spoof Detection: MiniFASNet has >= 10 frames and excessive spoofs
+            # 1. Definite Spoof Detection: Only abort early if at least 20 frames evaluated,
+            # average real score is decisively fake (< 0.40), and >= 70% of frames are fake.
             as_summary_now = liveness.antispoof.get_summary()
-            if as_summary_now["total_frames"] >= 10 and as_summary_now["spoof_count"] > liveness.antispoof.max_allowed_spoofs:
+            if (
+                as_summary_now["total_frames"] >= 20
+                and as_summary_now["avg_real_score"] < 0.40
+                and as_summary_now["spoof_count"] >= int(as_summary_now["total_frames"] * 0.70)
+            ):
                 decision = "REJECTED_SPOOF_DETECTED"
                 reason = f"MiniFASNet anti-spoofing triggered ({as_summary_now['spoof_count']}/{as_summary_now['total_frames']} spoofs detected)"
                 break

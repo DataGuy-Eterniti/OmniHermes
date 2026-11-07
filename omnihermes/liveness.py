@@ -209,12 +209,12 @@ class LivenessSession:
         self.frames_analyzed += 1
         landmarks = result.face_landmarks[0]
 
-        # 1. Bounding box computation for MiniFASNet
+        # 1. Bounding box computation for MiniFASNet (x1, y1, x2, y2)
         xs = [l.x * w for l in landmarks]
         ys = [l.y * h for l in landmarks]
         min_x, max_x = max(0, int(min(xs))), min(w, int(max(xs)))
         min_y, max_y = max(0, int(min(ys))), min(h, int(max(ys)))
-        bbox = (min_x, min_y, max(1, max_x - min_x), max(1, max_y - min_y))
+        bbox = (min_x, min_y, max_x, max_y)
 
         # 2. Passive anti-spoof evaluation (sample across frames)
         if self.frames_analyzed % 2 == 0 or len(self.antispoof.scores) < 10:

@@ -22,23 +22,22 @@ def crop_face_square(img: np.ndarray, bbox: Tuple[int, int, int, int], expansion
     Ensures RGB channel order, letterbox resize to 128x128, and reflection padding.
     """
     original_height, original_width = img.shape[:2]
-    x, y, w, h = bbox
+    x1, y1, x2, y2 = bbox
 
-    # Ensure w and h are width and height, or x2, y2 coordinates
-    if w > x and h > y and w > original_width * 0.1:
-        # bbox passed as (x1, y1, x2, y2)
-        bw = w - x
-        bh = h - y
-    else:
-        bw = w
-        bh = h
+    # If coordinates are (x, y, w, h)
+    if x2 <= x1 or y2 <= y1:
+        x2 = x1 + x2
+        y2 = y1 + y2
+
+    bw = x2 - x1
+    bh = y2 - y1
 
     if bw <= 0 or bh <= 0:
         return np.zeros((128, 128, 3), dtype=img.dtype)
 
     max_dim = max(bw, bh)
-    center_x = x + bw / 2.0
-    center_y = y + bh / 2.0
+    center_x = x1 + bw / 2.0
+    center_y = y1 + bh / 2.0
 
     crop_x = int(center_x - max_dim * expansion / 2.0)
     crop_y = int(center_y - max_dim * expansion / 2.0)
@@ -178,11 +177,12 @@ class AntiSpoofSession:
 
         avg_real = sum(self.scores) / float(total)
         spoof_count = sum(1 for f in self.spoof_flags if f)
+        allowed_spoofs = max(self.max_allowed_spoofs, int(total * 0.35))
 
         # Check conditions
         has_enough_frames = total >= self.min_frames
         passes_avg = avg_real >= self.real_threshold
-        passes_spoof_ceiling = spoof_count <= self.max_allowed_spoofs
+        passes_spoof_ceiling = spoof_count <= allowed_spoofs
 
         passed = has_enough_frames and passes_avg and passes_spoof_ceiling
 
@@ -191,7 +191,7 @@ class AntiSpoofSession:
         elif not passes_avg:
             reason = f"Average real score {avg_real:.4f} is below threshold {self.real_threshold:.4f}"
         elif not passes_spoof_ceiling:
-            reason = f"Too many spoof frames detected ({spoof_count} > {self.max_allowed_spoofs})"
+            reason = f"Too many spoof frames detected ({spoof_count} > {allowed_spoofs})"
         else:
             reason = "PASSED"
 
