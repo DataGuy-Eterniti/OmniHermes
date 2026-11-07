@@ -138,37 +138,34 @@ def is_display_detected(kwargs: Dict[str, Any]) -> bool:
     return not is_headless_or_gateway(kwargs)
 
 
-def on_pre_tool_call(**kwargs) -> Dict[str, Any]:
+def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
     """Intercept tool executions before they dispatch.
     
     Fail-closed: Returns {"action": "block", ...} on any exception, missing camera,
     missing enrollment, headless session, or decision timeout.
     """
-    tool_name = kwargs.get("tool_name", "") or kwargs.get("name", "") or kwargs.get("function_name", "")
-    raw_args = (
-        kwargs.get("args")
-        if kwargs.get("args") is not None
-        else kwargs.get("arguments")
-        if kwargs.get("arguments") is not None
-        else kwargs.get("function_args")
-    )
-    if isinstance(raw_args, dict):
-        arguments = dict(raw_args)
-    elif isinstance(raw_args, str):
-        arguments = {"command": raw_args}
-    elif isinstance(raw_args, (list, tuple)):
-        arguments = {"args": list(raw_args), "command": " ".join(str(x) for x in raw_args)}
-    else:
-        arguments = {}
-    for k in ("command", "cmd", "script", "code", "input"):
-        if k in kwargs and k not in arguments:
-            arguments[k] = kwargs[k]
-    cmd_summary = f"{tool_name} with params: {json.dumps(arguments, ensure_ascii=False)[:120]}"
+    cmd_summary = f"{tool_name} with params: {str(args)[:120]}"
     risk_decision = "UNKNOWN"
-    display_detected = is_display_detected(kwargs)
+    display_detected = False
     return_val: Dict[str, Any] = {"action": "block", "message": "OmniHermes: unhandled security check."}
 
     try:
+        raw_args = args if args is not None else kwargs.get("arguments") or kwargs.get("function_args")
+        if isinstance(raw_args, dict):
+            arguments = dict(raw_args)
+        elif isinstance(raw_args, str):
+            arguments = {"command": raw_args}
+        elif isinstance(raw_args, (list, tuple)):
+            arguments = {"args": list(raw_args), "command": " ".join(str(x) for x in raw_args)}
+        else:
+            arguments = {}
+        for k in ("command", "cmd", "script", "code", "input"):
+            if k in kwargs and k not in arguments:
+                arguments[k] = kwargs[k]
+
+        display_detected = is_display_detected(kwargs)
+        cmd_summary = f"{tool_name} with params: {json.dumps(arguments, ensure_ascii=False)[:120]}"
+
         # Never intercept our own management tools
         if tool_name.startswith("omnihermes_") or tool_name.startswith("presence_"):
             risk_decision = "MANAGEMENT_TOOL"
@@ -463,6 +460,16 @@ def register(ctx: Any) -> None:
 
     # Register lifecycle hooks
     ctx.register_hook("pre_tool_call", on_pre_tool_call)
+
+    # Record registration build timestamp to hook_debug.log
+    try:
+        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        pid = os.getpid()
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] [PID:{pid}] OmniHermes plugin v1.0.0 (build 2026-11-07.0848) registered in process\n")
+    except Exception:
+        pass
 
     # Secret retrieval if secret_scope available
     if hasattr(ctx, "agent") and hasattr(ctx.agent, "secret_scope"):
