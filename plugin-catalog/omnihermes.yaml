@@ -1,5 +1,5 @@
-name: presence-gate
-repo: https://github.com/DataGuy-Eterniti/presence-gate
+name: omnihermes
+repo: https://github.com/DataGuy-Eterniti/omnihermes
 sha: "<sha>"
 description: "On-device biometric presence and face-verified authorization gate for Hermes Agent."
 maintainer: DataGuy-Eterniti
@@ -9,11 +9,11 @@ requires_hermes: ">=0.22.7"
 version: "1.0.0"
 capabilities:
   provides_tools:
-    - presence_status
-    - presence_enroll
-    - presence_configure
-    - presence_audit_logs
-    - presence_unlock
+    - omnihermes_status
+    - omnihermes_enroll
+    - omnihermes_configure
+    - omnihermes_audit_logs
+    - omnihermes_unlock
   provides_hooks:
     - pre_tool_call
   provides_middleware: []

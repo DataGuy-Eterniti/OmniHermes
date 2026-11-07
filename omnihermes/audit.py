@@ -1,4 +1,4 @@
-"""Tamper-evident cryptographic audit logger for Presence Gate.
+"""Tamper-evident cryptographic audit logger for OmniHermes.
 
 Maintains an append-only, SHA-256 hash-chained log of every enrollment,
 authorization, rejection, and presence event.
@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from presence.models import get_default_data_dir
+from omnihermes.models import get_default_data_dir
 
 
 class AuditLogger:

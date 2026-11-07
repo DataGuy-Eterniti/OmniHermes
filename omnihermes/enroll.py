@@ -1,7 +1,7 @@
-"""Standalone Biometric Enrollment Flow for Presence Gate.
+"""Standalone Biometric Enrollment Flow for OmniHermes.
 
 Usage:
-    python -m presence.enroll --name "Elijah" --primary
+    python -m omnihermes.enroll --name "Elijah" --primary
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ from typing import List
 import cv2
 import numpy as np
 
-from presence.audit import AuditLogger
-from presence.biometrics import BiometricEngine
-from presence.liveness import LivenessSession
-from presence.models import get_default_data_dir
+from omnihermes.audit import AuditLogger
+from omnihermes.biometrics import BiometricEngine
+from omnihermes.liveness import LivenessSession
+from omnihermes.models import get_default_data_dir
 
 
 def draw_hud(
@@ -75,7 +75,7 @@ def run_enrollment(
     liveness = LivenessSession(data_dir=data_dir)
 
     print("=" * 60)
-    print(f"PRESENCE GATE: BIOMETRIC ENROLLMENT")
+    print(f"OMNIHERMES: BIOMETRIC ENROLLMENT")
     print(f"• Candidate:        {name} ({'PRIMARY OWNER' if is_primary else 'MEMBER'})")
     print(f"• Detection/Embed:  OpenCV YuNet + SFace (128-d)")
     print(f"• Anti-Spoofing:    MiniFASNetV2-SE (Passive) + 3D Parallax")
@@ -92,7 +92,7 @@ def run_enrollment(
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-    window_name = "Presence Gate - Biometric Enrollment"
+    window_name = "OmniHermes - Biometric Enrollment"
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     embeddings: List[np.ndarray] = []
@@ -149,7 +149,7 @@ def run_enrollment(
                             emb = biometrics.extract_embedding(frame, primary_face)
                             embeddings.append(emb)
                             last_sample_time = now
-                            print(f"[Presence] Captured sample {len(embeddings)}/{target_samples}")
+                            print(f"[OmniHermes] Captured sample {len(embeddings)}/{target_samples}")
 
             challenge_status = "COMPLETED ✔" if live_res["completed"] else f"{live_res['prompt']}..."
             draw_hud(
@@ -221,7 +221,7 @@ def run_enrollment(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Presence Gate - Biometric Enrollment")
+    parser = argparse.ArgumentParser(description="OmniHermes - Biometric Enrollment")
     parser.add_argument("--name", type=str, default="Elijah", help="Name of owner to enroll")
     parser.add_argument("--primary", action="store_true", default=True, help="Mark as primary workstation owner")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")

@@ -1,10 +1,10 @@
-"""Presence Gate — Simulated Walkthrough Runner.
+"""OmniHermes — Simulated Walkthrough Runner.
 
 [SIMULATED] This is a mock simulation demonstrating plugin logic flow.
 It does NOT use a live webcam or real Hermes execution.
 For live hardware testing, use:
-    python -m presence.enroll --name "Elijah" --primary
-    python -m presence.verify
+    python -m omnihermes.enroll --name "Elijah" --primary
+    python -m omnihermes.verify
 """
 
 import sys
@@ -18,13 +18,13 @@ from core.biometrics import BiometricEngine
 from core.policy import PolicyEngine
 from core.audit import AuditLogger
 from core.away import PresenceMonitor
-import __init__ as presence_gate
+import __init__ as omnihermes_gate
 
 
 def print_banner():
     banner = r"""
 ============================================================
-[SIMULATED] PRESENCE GATE — AUTOMATED FLOW SIMULATION
+[SIMULATED] OMNIHERMES — AUTOMATED FLOW SIMULATION
 ============================================================
 NOTE: This walkthrough simulates agent interception, biometric
 thresholding, and away-detection logic without touching hardware.
@@ -36,21 +36,21 @@ thresholding, and away-detection logic without touching hardware.
 def run_simulation():
     print_banner()
 
-    policy = presence_gate.get_policy()
-    audit = presence_gate.get_audit()
-    presence = presence_gate.get_presence()
+    policy = omnihermes_gate.get_policy()
+    audit = omnihermes_gate.get_audit()
+    presence = omnihermes_gate.get_presence()
 
     # Step 1: Simulated enrollment
     print("\033[1;33m[STEP 1/5] [SIMULATED] Enrolling Mock Profile ('Elijah')...\033[0m")
     time.sleep(1)
     dummy_vec = [0.1] * 128
-    presence_gate.handle_presence_enroll({"owner_name": "Elijah", "test_embedding": dummy_vec})
+    omnihermes_gate.handle_omnihermes_enroll({"owner_name": "Elijah", "test_embedding": dummy_vec})
     print("  \033[32m✔ Simulated profile created: 128-d vector encrypted with AES-256-GCM.\033[0m\n")
     time.sleep(1)
 
     # Step 2: Benign action allowed
     print("\033[1;33m[STEP 2/5] [SIMULATED] Agent executes benign tool: 'read_file'\033[0m")
-    res1 = presence_gate.on_pre_tool_call(tool_name="read_file", arguments={"path": "README.md"})
+    res1 = omnihermes_gate.on_pre_tool_call(tool_name="read_file", arguments={"path": "README.md"})
     print(f"  \033[32m✔ Policy Assessment: Low Risk -> Action Allowed: {res1}\033[0m\n")
     time.sleep(1)
 
@@ -106,7 +106,7 @@ def run_simulation():
     print("\033[1;33m[STEP 5/5] [SIMULATED] Desk Absence Tracking\033[0m")
     presence.mark_away()
     print("  \033[33m⚡ Presence status: [AWAY] (Workstation unattended)\033[0m")
-    away_check = presence_gate.on_pre_tool_call(tool_name="terminal", arguments={"command": "npm publish"})
+    away_check = omnihermes_gate.on_pre_tool_call(tool_name="terminal", arguments={"command": "npm publish"})
     print(f"  \033[31m✖ Intercepted & Paused: {away_check['message']}\033[0m\n")
     time.sleep(1)
 
@@ -122,4 +122,3 @@ def run_simulation():
 
 if __name__ == "__main__":
     run_simulation()
-

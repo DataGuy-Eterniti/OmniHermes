@@ -1,6 +1,6 @@
-name: presence-gate
+name: omnihermes
 version: "1.0.0"
-title: "Presence Gate: Biometric Presence & Face-Verified Security Gate"
+title: "OmniHermes: Biometric Presence & Face-Verified Security Gate"
 description: "On-device biometric presence and face-verified authorization gate for Hermes Agent. Intercepts high-risk actions (terminal commands, file changes outside project, sensitive MCP actions) and enforces webcam liveness and face recognition before execution."
 author: "Elijah & Community Contributors"
 license: "MIT"
@@ -16,11 +16,11 @@ python_dependencies:
   - "pillow>=10.0,<15.0"
 
 provides_tools:
-  - presence_status
-  - presence_enroll
-  - presence_configure
-  - presence_audit_logs
-  - presence_unlock
+  - omnihermes_status
+  - omnihermes_enroll
+  - omnihermes_configure
+  - omnihermes_audit_logs
+  - omnihermes_unlock
 
 provides_hooks:
   - pre_tool_call
@@ -37,7 +37,7 @@ config_schema:
   unlock_window_seconds:
     type: int
     default: 120
-    description: "Duration of temporary execution window granted by /presence unlock."
+    description: "Duration of temporary execution window granted by /omnihermes unlock."
   away_timeout_seconds:
     type: int
     default: 45
@@ -46,7 +46,7 @@ config_schema:
     type: list
     default: ["terminal", "delegate_task"]
     description: "List of tools that trigger biometric authorization."
-  PRESENCE_ENCRYPTION_KEY:
+  OMNIHERMES_ENCRYPTION_KEY:
     type: secret
     description: "Optional 256-bit AES key for profile encryption. Generated locally if omitted."
 

@@ -1,4 +1,4 @@
-"""Tests for Presence Gate policy engine and real Hermes targets."""
+"""Tests for OmniHermes policy engine and real Hermes targets."""
 
 import tempfile
 import unittest
@@ -26,6 +26,30 @@ class TestPolicyEngine(unittest.TestCase):
         self.assertFalse(assessment["requires_biometric"])
         self.assertEqual(assessment["risk_level"], "LOW")
 
+    def test_destructive_deletion_commands_task3b(self):
+        """Test specific destructive commands including Windows variants."""
+        deletion_commands = [
+            "rm -rf 'C:/Users/USER/presence-test/junk'",
+            "rm -rf \"C:\\Users\\USER\\presence-test\\junk\"",
+            "Remove-Item -Recurse 'C:/Users/USER/presence-test/junk'",
+            "Remove-Item -Recurse -Force 'C:/Users/USER/presence-test/junk'",
+            "rmdir /s /q 'C:/Users/USER/presence-test/junk'",
+            "rmdir /s \"C:\\Users\\USER\\presence-test\\junk\"",
+            "del /s /q 'C:/Users/USER/presence-test/junk'",
+            "del /s \"C:\\Users\\USER\\presence-test\\junk\"",
+        ]
+        for cmd in deletion_commands:
+            assessment = self.engine.assess_risk("terminal", {"command": cmd})
+            self.assertTrue(
+                assessment["requires_biometric"],
+                f"Destructive command failed to require biometrics: {cmd}",
+            )
+            self.assertEqual(
+                assessment["risk_level"],
+                "HIGH",
+                f"Destructive command should be HIGH risk: {cmd}",
+            )
+
     def test_terminal_dangerous_patterns(self):
         dangerous_cmds = [
             "rm -rf /production",
@@ -52,12 +76,12 @@ class TestPolicyEngine(unittest.TestCase):
         outside_path = "C:\\Windows\\System32\\hosts" if Path("C:\\").exists() else "/etc/passwd"
         res_outside = self.engine.assess_risk("write_file", {"path": outside_path})
         self.assertTrue(res_outside["requires_biometric"])
-        self.assertEqual(res_outside["risk_level"], "HIGH")
+        self.assertEqual(res_outside["risk_level"], "CRITICAL")
 
     def test_delegate_task_guarded(self):
         assessment = self.engine.assess_risk("delegate_task", {"task": "run background audit"})
         self.assertTrue(assessment["requires_biometric"])
-        self.assertEqual(assessment["risk_level"], "MEDIUM")
+        self.assertEqual(assessment["risk_level"], "HIGH")
 
     def test_mcp_sensitive_tools(self):
         for tool in ["stripe_pay", "mcp_transfer_funds", "user_database_delete", "post_charge"]:

@@ -1,12 +1,12 @@
-"""Standalone Face Verification and Liveness Diagnostic Tool for Presence Gate.
+"""Standalone Face Verification and Liveness Diagnostic Tool for OmniHermes.
 
 Usage:
-    python -m presence.verify
-    python -m presence.verify --timeout 300
-    python -m presence.verify --unlock
-    python -m presence.verify --identity-only --image path/to/face.jpg
-    python -m presence.verify --source path/to/image_or_video
-    python -m presence.verify --list-cameras
+    python -m omnihermes.verify
+    python -m omnihermes.verify --timeout 300
+    python -m omnihermes.verify --unlock
+    python -m omnihermes.verify --identity-only --image path/to/face.jpg
+    python -m omnihermes.verify --source path/to/image_or_video
+    python -m omnihermes.verify --list-cameras
 """
 
 from __future__ import annotations
@@ -20,16 +20,16 @@ from typing import List, Optional
 import cv2
 import numpy as np
 
-from presence.audit import AuditLogger
-from presence.biometrics import BiometricEngine, DEFAULT_COSINE_THRESHOLD
-from presence.liveness import LivenessSession
-from presence.models import get_default_data_dir
+from omnihermes.audit import AuditLogger
+from omnihermes.biometrics import BiometricEngine, DEFAULT_COSINE_THRESHOLD
+from omnihermes.liveness import LivenessSession
+from omnihermes.models import get_default_data_dir
 
 
 def list_available_cameras(max_probe: int = 5) -> List[int]:
     """Probe system for available camera device indices."""
     available: List[int] = []
-    print(f"[Presence] Probing video capture devices (indices 0 to {max_probe - 1})...")
+    print(f"[OmniHermes] Probing video capture devices (indices 0 to {max_probe - 1})...")
     for idx in range(max_probe):
         cap = cv2.VideoCapture(idx)
         if cap.isOpened():
@@ -47,7 +47,7 @@ def verify_image_identity_only(image_path: Path, data_dir: Optional[Path] = None
 
     if not biometrics.is_enrolled():
         print("[ERROR] No enrolled biometric profile found!")
-        print("Run 'python -m presence.enroll --name \"Elijah\" --primary' to enroll first.")
+        print("Run 'python -m omnihermes.enroll --name \"Elijah\" --primary' to enroll first.")
         return False
 
     owner_info = biometrics.get_owner_info()
@@ -65,7 +65,7 @@ def verify_image_identity_only(image_path: Path, data_dir: Optional[Path] = None
     faces = biometrics.detect_faces(img)
     if not faces:
         print("\n" + "=" * 60)
-        print("PRESENCE GATE — IDENTITY CHECK (IMAGE)")
+        print("OMNIHERMES — IDENTITY CHECK (IMAGE)")
         print("=" * 60)
         print(f"• File:             {image_path.name}")
         print(f"• Enrolled Owner:   {owner_name}")
@@ -78,7 +78,7 @@ def verify_image_identity_only(image_path: Path, data_dir: Optional[Path] = None
     passed, similarity = biometrics.match_against_owner(emb)
 
     print("\n" + "=" * 60)
-    print("PRESENCE GATE — IDENTITY CHECK (IMAGE)")
+    print("OMNIHERMES — IDENTITY CHECK (IMAGE)")
     print("=" * 60)
     print(f"• File:                   {image_path.name}")
     print(f"• Enrolled Owner:         {owner_name}")
@@ -105,7 +105,7 @@ def run_verify(
         print("\n" + "=" * 60)
         print("[ERROR] No enrolled biometric profile found!")
         print("Please enroll first using:")
-        print("    python -m presence.enroll --name \"Elijah\" --primary")
+        print("    python -m omnihermes.enroll --name \"Elijah\" --primary")
         print("=" * 60)
         return False
 
@@ -114,7 +114,7 @@ def run_verify(
     liveness = LivenessSession(data_dir=data_dir)
 
     print("=" * 60)
-    print("PRESENCE GATE: LIVE VERIFICATION DIAGNOSTIC")
+    print("OMNIHERMES: LIVE VERIFICATION DIAGNOSTIC")
     print(f"• Enrolled Owner:               {owner_name} ({owner_info.get('role', 'PRIMARY_OWNER')})")
     print(f"• SFace Cosine Threshold:       {biometrics.cosine_threshold:.4f}")
     print(f"• Passive Anti-Spoofing:        MiniFASNetV2-SE (Threshold: 0.6000)")
@@ -146,7 +146,7 @@ def run_verify(
             reason = f"Face similarity {current_sim:.4f} below threshold"
 
         print("\n" + "=" * 60)
-        print("PRESENCE GATE — STATIC SOURCE VERIFICATION")
+        print("OMNIHERMES — STATIC SOURCE VERIFICATION")
         print("=" * 60)
         print(f"• Source File:            {source_file.name}")
         print(f"• Enrolled Owner:         {owner_name}")
@@ -169,7 +169,7 @@ def run_verify(
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-    window_name = "Presence Gate - Live Verification"
+    window_name = "OmniHermes - Face Verification"
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     start_time = time.time()
@@ -358,7 +358,7 @@ def run_verify(
 
     # Print comprehensive diagnostic output
     print("\n" + "=" * 60)
-    print("PRESENCE GATE — MULTI-FACTOR VERIFICATION REPORT")
+    print("OMNIHERMES — MULTI-FACTOR VERIFICATION REPORT")
     print("=" * 60)
     print(f"• Enrolled Owner:         {owner_name}")
     print(f"• Face Detected:          {face_seen}")
@@ -375,7 +375,7 @@ def run_verify(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Presence Gate - Face Verification Diagnostic")
+    parser = argparse.ArgumentParser(description="OmniHermes - Face Verification Diagnostic")
     parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds (default: 300s / 5 mins)")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")
     parser.add_argument("--data-dir", type=str, default=None, help="Custom data directory")
@@ -391,9 +391,9 @@ def main():
     if args.list_cameras:
         cams = list_available_cameras()
         if cams:
-            print(f"[Presence] Detected active camera device indices: {cams}")
+            print(f"[OmniHermes] Detected active camera device indices: {cams}")
         else:
-            print("[Presence] No active camera devices detected.")
+            print("[OmniHermes] No active camera devices detected.")
         sys.exit(0)
 
     if args.identity_only or args.image:
@@ -413,10 +413,10 @@ def main():
     )
 
     if success and args.unlock:
-        from presence.unlock import UnlockManager
+        from omnihermes.unlock import UnlockManager
         manager = UnlockManager(data_dir=data_dir_path)
         manager.grant_unlock("Elijah", duration_seconds=120)
-        print("\n[Presence] 2-minute execution unlock window granted.")
+        print("\n[OmniHermes] 2-minute execution unlock window granted.")
 
     sys.exit(0 if success else 1)
 

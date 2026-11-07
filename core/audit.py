@@ -1,8 +1,8 @@
-"""Audit logger bridge to presence package."""
+"""Audit logger bridge to omnihermes package."""
 
 try:
-    from ..presence.audit import AuditLogger
+    from ..omnihermes.audit import AuditLogger
 except (ImportError, ValueError):
-    from presence.audit import AuditLogger
+    from omnihermes.audit import AuditLogger
 
 __all__ = ["AuditLogger"]

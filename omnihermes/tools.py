@@ -1,4 +1,4 @@
-"""Tool handlers for Presence Gate / Omnihermes."""
+"""Tool handlers for OmniHermes."""
 
 from __future__ import annotations
 
@@ -9,17 +9,17 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 try:
-    from .presence.audit import AuditLogger
-    from .presence.biometrics import BiometricEngine
-    from .presence.enroll import run_enrollment
-    from .presence.unlock import UnlockManager, run_unlock_interactive
-    from .core.policy import PolicyEngine
-    from .core.away import PresenceMonitor
+    from .audit import AuditLogger
+    from .biometrics import BiometricEngine
+    from .enroll import run_enrollment
+    from .unlock import UnlockManager, run_unlock_interactive
+    from core.policy import PolicyEngine
+    from core.away import PresenceMonitor
 except (ImportError, ValueError):
-    from presence.audit import AuditLogger
-    from presence.biometrics import BiometricEngine
-    from presence.enroll import run_enrollment
-    from presence.unlock import UnlockManager, run_unlock_interactive
+    from omnihermes.audit import AuditLogger
+    from omnihermes.biometrics import BiometricEngine
+    from omnihermes.enroll import run_enrollment
+    from omnihermes.unlock import UnlockManager, run_unlock_interactive
     from core.policy import PolicyEngine
     from core.away import PresenceMonitor
 
@@ -68,12 +68,13 @@ def get_presence() -> PresenceMonitor:
     return _presence
 
 
-def handle_presence_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """Report overall security status of Presence Gate."""
+def handle_omnihermes_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Report overall security status of OmniHermes."""
     bio = get_biometrics()
     pol = get_policy()
     audit = get_audit()
     pres = get_presence()
+    unlock_mgr = get_unlock_manager()
 
     integrity = audit.verify_integrity()
     presence_status = pres.get_status()
@@ -91,6 +92,10 @@ def handle_presence_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
             "min_liveness_score": pol.config.get("min_liveness_score", 0.80),
         },
         "presence": presence_status,
+        "unlock_window": {
+            "unlocked": unlock_mgr.is_unlocked(is_away=pres.is_away()),
+            "remaining_seconds": unlock_mgr.get_remaining_seconds(),
+        },
         "audit_chain": {
             "valid": integrity["valid"],
             "count": integrity.get("count", 0),
@@ -99,7 +104,7 @@ def handle_presence_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def handle_presence_enroll(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_enroll(arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Enroll an owner's face profile using webcam and active liveness."""
     owner_name = arguments.get("owner_name", "Elijah")
     is_primary = arguments.get("primary", True)
@@ -130,11 +135,11 @@ def handle_presence_enroll(arguments: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Webcam enrollment failed: {str(e)}. Run 'python -m presence.enroll --name \"{owner_name}\" --primary' from terminal.",
+            "message": f"Webcam enrollment failed: {str(e)}. Run 'python -m omnihermes.enroll --name \"{owner_name}\" --primary' from terminal.",
         }
 
 
-def handle_presence_configure(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_configure(arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Configure policy rules."""
     pol = get_policy()
     audit = get_audit()
@@ -156,7 +161,7 @@ def handle_presence_configure(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def handle_presence_audit_logs(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_audit_logs(arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Retrieve audit history and chain integrity."""
     limit = int(arguments.get("limit", 10))
     verify_chain = bool(arguments.get("verify_chain", True))
@@ -179,7 +184,7 @@ def handle_presence_audit_logs(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return res
 
 
-def handle_presence_unlock(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_omnihermes_unlock(arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Unlock workstation for temporary execution window."""
     duration = int(arguments.get("duration_seconds", 120))
     success = run_unlock_interactive(timeout=300, duration=duration)
@@ -197,8 +202,9 @@ def handle_presence_unlock(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# Backward compatibility aliases
-handle_omnihermes_status = handle_presence_status
-handle_omnihermes_enroll = handle_presence_enroll
-handle_omnihermes_configure = handle_presence_configure
-handle_omnihermes_audit_logs = handle_presence_audit_logs
+# Compatibility aliases
+handle_presence_status = handle_omnihermes_status
+handle_presence_enroll = handle_omnihermes_enroll
+handle_presence_configure = handle_omnihermes_configure
+handle_presence_audit_logs = handle_omnihermes_audit_logs
+handle_presence_unlock = handle_omnihermes_unlock

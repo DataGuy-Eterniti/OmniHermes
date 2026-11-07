@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from presence.models import ensure_models, get_default_data_dir
+from omnihermes.models import ensure_models, get_default_data_dir
 
 
 def crop_face_square(img: np.ndarray, bbox: Tuple[int, int, int, int], expansion: float = 1.5) -> np.ndarray:

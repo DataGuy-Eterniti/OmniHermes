@@ -10,8 +10,8 @@ from pathlib import Path
 
 import numpy as np
 
-from presence.antispoof import AntiSpoofEngine, AntiSpoofSession, crop_face_square
-from presence.liveness import LivenessSession
+from omnihermes.antispoof import AntiSpoofEngine, AntiSpoofSession, crop_face_square
+from omnihermes.liveness import LivenessSession
 
 
 class LandmarkFixture:

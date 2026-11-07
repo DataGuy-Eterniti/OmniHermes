@@ -1,4 +1,4 @@
-"""Unlock Window Manager and Standalone CLI for Presence Gate.
+"""Unlock Window Manager and Standalone CLI for OmniHermes.
 
 Allows the owner to perform biometric verification in a relaxed 5-minute window
 and grants a temporary execution grace period (default 120s) for high-risk commands.
@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from presence.audit import AuditLogger
-from presence.models import get_default_data_dir
+from omnihermes.audit import AuditLogger
+from omnihermes.models import get_default_data_dir
 
 
 class UnlockManager:
@@ -109,11 +109,11 @@ class UnlockManager:
 
 def run_unlock_interactive(timeout: int = 300, duration: int = 120, camera_idx: int = 0) -> bool:
     """Run interactive biometric unlock with relaxed 5-minute timeout."""
-    from presence.verify import run_verify
-    from tools import get_presence
+    from omnihermes.verify import run_verify
+    from omnihermes.tools import get_presence
 
     print("=" * 60)
-    print("PRESENCE GATE: INTERACTIVE WORKSTATION UNLOCK")
+    print("OMNIHERMES: INTERACTIVE WORKSTATION UNLOCK")
     print(f"• Verification Timeout: {timeout}s (5 minutes)")
     print(f"• Unlock Duration on Success: {duration}s (2 minutes)")
     print("=" * 60)
@@ -138,7 +138,7 @@ def run_unlock_interactive(timeout: int = 300, duration: int = 120, camera_idx: 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Presence Gate - Workstation Unlock")
+    parser = argparse.ArgumentParser(description="OmniHermes - Workstation Unlock")
     parser.add_argument("--timeout", type=int, default=300, help="Verification timeout in seconds (default: 300s)")
     parser.add_argument("--duration", type=int, default=120, help="Unlock duration in seconds (default: 120s)")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")

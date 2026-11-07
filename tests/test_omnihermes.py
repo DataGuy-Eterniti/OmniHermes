@@ -1,4 +1,4 @@
-"""Unit tests for the real Presence Gate engine."""
+"""Unit tests for the real OmniHermes engine."""
 
 import tempfile
 import unittest
@@ -6,11 +6,11 @@ from pathlib import Path
 
 import numpy as np
 
-import presence
-from presence.audit import AuditLogger
-from presence.biometrics import BiometricEngine, DEFAULT_COSINE_THRESHOLD
-from presence.crypto import encrypt_payload, decrypt_payload, get_or_generate_key
-from presence.liveness import calculate_ear, euclidean_dist
+import omnihermes
+from omnihermes.audit import AuditLogger
+from omnihermes.biometrics import BiometricEngine, DEFAULT_COSINE_THRESHOLD
+from omnihermes.crypto import encrypt_payload, decrypt_payload, get_or_generate_key
+from omnihermes.liveness import calculate_ear, euclidean_dist
 
 
 class DummyLandmark:
@@ -19,7 +19,7 @@ class DummyLandmark:
         self.y = y
 
 
-class TestPresenceEngine(unittest.TestCase):
+class TestOmniHermesEngine(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temp_dir.name)

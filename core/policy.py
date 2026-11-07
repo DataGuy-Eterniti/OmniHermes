@@ -1,4 +1,4 @@
-"""Policy Engine for Presence Gate.
+"""Policy Engine for OmniHermes.
 
 Determines whether an intercepted tool call is high-risk and requires
 face verification before execution. Real Hermes targets:
@@ -16,7 +16,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from presence.models import get_default_data_dir
+try:
+    from omnihermes.models import get_default_data_dir
+except (ImportError, ValueError):
+    from .models import get_default_data_dir
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": True,
@@ -34,14 +37,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "patch",
     ],
     "dangerous_terminal_patterns": [
-        r"(?i)\brm\s+-rf\b",
-        r"(?i)\bdel\s+/[sfq]\b",
+        r"(?i)\brm\s+-[a-z]*r[a-z]*\b",                   # rm -rf, rm -r, rm -fr, etc.
+        r"(?i)\bdel\b.*(?:\s+/[sfq]|\s+-[sfq])",          # del /s, del /f, del /s /q
+        r"(?i)\brmdir\b.*(?:\s+/[sfq]|\s+-[sfq])",        # rmdir /s, rmdir /s /q
+        r"(?i)\bRemove-Item\b.*-(?:r|recurse|force)\b",    # PowerShell Remove-Item -Recurse
+        r"(?i)\b(?:ri|erase)\b.*-(?:r|recurse|force)\b",  # PowerShell aliases
         r"(?i)\bgit\s+push\b.*--force\b",
         r"(?i)\bnpm\s+publish\b",
         r"(?i)\bcurl\b.*\|\s*(ba)?sh\b",
         r"(?i)\bsudo\b",
         r"(?i)\bformat\s+[a-z]:",
         r"(?i)\bdrop\s+database\b",
+        r"(?i)\btruncate\s+table\b",
     ],
     "mcp_sensitive_regex": r"(?i)(?:^|[\W_])(pay|charge|transfer|refund|delete|send)(?:[\W_]|$)",
 }
@@ -59,20 +66,34 @@ class PolicyEngine:
         self.config = self._load_config()
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from disk or return default."""
+        """Load configuration from disk or create default."""
         if not self.config_path.exists():
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            self.save_config(DEFAULT_CONFIG)
             return dict(DEFAULT_CONFIG)
+
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
-            merged = dict(DEFAULT_CONFIG)
-            merged.update(loaded)
-            return merged
+            # Merge with defaults to ensure all keys exist
+            config = dict(DEFAULT_CONFIG)
+            config.update(loaded)
+
+            # Ensure all mandatory default security patterns are present
+            default_patterns = DEFAULT_CONFIG.get("dangerous_terminal_patterns", [])
+            existing_patterns = list(config.get("dangerous_terminal_patterns", []))
+            for pat in default_patterns:
+                if pat not in existing_patterns:
+                    existing_patterns.append(pat)
+            config["dangerous_terminal_patterns"] = existing_patterns
+            return config
         except Exception:
             return dict(DEFAULT_CONFIG)
 
-    def save_config(self) -> bool:
-        """Persist current configuration to disk."""
+    def save_config(self, config_to_save: Optional[Dict[str, Any]] = None) -> bool:
+        """Persist configuration to disk."""
+        if config_to_save is not None:
+            self.config = config_to_save
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -104,12 +125,12 @@ class PolicyEngine:
             return {
                 "requires_biometric": False,
                 "risk_level": "DISABLED",
-                "reason": "Presence Gate enforcement is disabled in settings.",
+                "reason": "OmniHermes enforcement is disabled in settings.",
             }
 
         # 1. Terminal / Shell command inspection
         if tool_name in ["terminal", "bash", "shell", "run_command", "execute_command"]:
-            cmd = str(arguments.get("command", "") or arguments.get("cmd", "") or "")
+            cmd = str(arguments.get("command", "") or arguments.get("cmd", "") or arguments.get("args", "") or arguments.get("script", "") or json.dumps(arguments))
             for pattern in self.config.get("dangerous_terminal_patterns", []):
                 if re.search(pattern, cmd):
                     return {
@@ -129,42 +150,45 @@ class PolicyEngine:
             if path_arg and self.is_path_outside_project(path_arg):
                 return {
                     "requires_biometric": True,
-                    "risk_level": "HIGH",
-                    "reason": f"File tool '{tool_name}' target '{path_arg}' is outside project directory.",
+                    "risk_level": "CRITICAL",
+                    "reason": f"Operation touches file outside project root: '{path_arg}'",
                 }
             return {
                 "requires_biometric": False,
                 "risk_level": "LOW",
-                "reason": "File modification is within current project boundaries.",
+                "reason": "File operation is within project boundary.",
             }
 
-        # 3. Task delegation
-        if tool_name in ["delegate_task", "subagent_spawn", "invoke_agent"]:
-            return {
-                "requires_biometric": True,
-                "risk_level": "MEDIUM",
-                "reason": f"Tool '{tool_name}' delegates autonomous execution to subagents.",
-            }
-
-        # 4. MCP sensitive tools (matching pay|charge|transfer|refund|delete|send)
-        mcp_pattern = self.config.get("mcp_sensitive_regex", r"(?i)\b(pay|charge|transfer|refund|delete|send)\b")
-        if re.search(mcp_pattern, tool_name):
-            return {
-                "requires_biometric": True,
-                "risk_level": "HIGH",
-                "reason": f"MCP tool '{tool_name}' matches sensitive action pattern.",
-            }
-
-        # 5. Check explicitly listed guarded tools
+        # 3. Direct guarded tools (e.g. delegate_task)
         if tool_name in self.config.get("guarded_tools", []):
             return {
                 "requires_biometric": True,
                 "risk_level": "HIGH",
-                "reason": f"Tool '{tool_name}' is explicitly configured as guarded.",
+                "reason": f"Tool '{tool_name}' is in guarded tools policy.",
             }
 
+        # 4. MCP Tools - Sensitive keywords inspection
+        mcp_pattern = self.config.get("mcp_sensitive_regex", "")
+        if mcp_pattern and re.search(mcp_pattern, tool_name):
+            return {
+                "requires_biometric": True,
+                "risk_level": "HIGH",
+                "reason": f"MCP tool name '{tool_name}' matches sensitive keyword pattern.",
+            }
+
+        # Arguments inspection for sensitive patterns in MCP tools
+        args_str = json.dumps(arguments)
+        for pattern in self.config.get("dangerous_terminal_patterns", []):
+            if re.search(pattern, args_str):
+                return {
+                    "requires_biometric": True,
+                    "risk_level": "HIGH",
+                    "reason": f"Tool arguments match sensitive pattern '{pattern}'",
+                }
+
+        # Safe benign tool
         return {
             "requires_biometric": False,
             "risk_level": "LOW",
-            "reason": "Benign tool call.",
+            "reason": f"Tool '{tool_name}' is classified as low risk.",
         }

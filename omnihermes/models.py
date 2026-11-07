@@ -1,4 +1,4 @@
-"""Model management and verified downloading for Presence Gate.
+"""Model management and verified downloading for OmniHermes.
 
 Downloads official OpenCV Zoo ONNX models and MediaPipe models,
 verifying hard-coded SHA-256 checksums before loading.
@@ -58,7 +58,7 @@ def get_default_data_dir() -> Path:
     if "HERMES_PLUGIN_DATA_DIR" in os.environ:
         p = Path(os.environ["HERMES_PLUGIN_DATA_DIR"])
     elif (Path.home() / ".hermes").exists():
-        p = Path.home() / ".hermes" / "presence-gate"
+        p = Path.home() / ".hermes" / "omnihermes"
     else:
         p = Path(__file__).resolve().parent.parent / ".data"
     p.mkdir(parents=True, exist_ok=True)
@@ -96,8 +96,8 @@ def download_model(name: str, target_path: Path) -> Path:
     if temp_path.exists():
         temp_path.unlink()
 
-    print(f"[Presence] Downloading {name} ({spec['filename']})...")
-    req = urllib.request.Request(spec["url"], headers={"User-Agent": "Mozilla/5.0 (Presence-Gate)"})
+    print(f"[OmniHermes] Downloading {name} ({spec['filename']})...")
+    req = urllib.request.Request(spec["url"], headers={"User-Agent": "Mozilla/5.0 (OmniHermes)"})
     with urllib.request.urlopen(req) as response, open(temp_path, "wb") as out_file:
         while chunk := response.read(65536):
             out_file.write(chunk)
@@ -112,7 +112,7 @@ def download_model(name: str, target_path: Path) -> Path:
 
     # Rename temp to target atomically
     temp_path.replace(target_path)
-    print(f"[Presence] Verified {name} (SHA-256: {spec['sha256'][:16]}...)")
+    print(f"[OmniHermes] Verified {name} (SHA-256: {spec['sha256'][:16]}...)")
     return target_path
 
 

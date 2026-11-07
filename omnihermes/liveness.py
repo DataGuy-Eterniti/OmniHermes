@@ -20,8 +20,8 @@ import numpy as np
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 
-from presence.antispoof import AntiSpoofEngine, AntiSpoofSession
-from presence.models import ensure_models, get_default_data_dir
+from omnihermes.antispoof import AntiSpoofEngine, AntiSpoofSession
+from omnihermes.models import ensure_models, get_default_data_dir
 
 
 def euclidean_dist(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:

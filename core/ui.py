@@ -1,4 +1,4 @@
-"""Biometric Authorization Dialog for Presence Gate.
+"""Biometric Authorization Dialog for OmniHermes.
 
 Displays a security modal with live webcam feedback, active liveness challenge,
 and biometric authorization prompt when high-risk actions are intercepted.
@@ -20,11 +20,11 @@ except ImportError:
     tk = None
 
 try:
-    from ..presence.biometrics import BiometricEngine
-    from ..presence.liveness import LivenessSession
+    from ..omnihermes.biometrics import BiometricEngine
+    from ..omnihermes.liveness import LivenessSession
 except (ImportError, ValueError):
-    from presence.biometrics import BiometricEngine
-    from presence.liveness import LivenessSession
+    from omnihermes.biometrics import BiometricEngine
+    from omnihermes.liveness import LivenessSession
 
 
 class BiometricAuthDialog:
@@ -63,7 +63,7 @@ class BiometricAuthDialog:
             return {
                 "approved": False,
                 "reason": "HEADLESS_OR_NO_DISPLAY",
-                "message": "Presence: this action needs face verification at Elijah's computer.",
+                "message": "OmniHermes: verify with /omnihermes unlock, then ask me to retry.",
                 "confidence": 0.0,
                 "liveness_score": 0.0,
             }
@@ -74,12 +74,27 @@ class BiometricAuthDialog:
             return {
                 "approved": False,
                 "reason": "NO_DISPLAY_FOUND",
-                "message": "Presence: this action needs face verification at Elijah's computer.",
+                "message": "OmniHermes: verify with /omnihermes unlock, then ask me to retry.",
                 "confidence": 0.0,
                 "liveness_score": 0.0,
             }
 
-        root.title("Presence Gate — Security Authorization")
+        window_title = "OmniHermes - Face Verification"
+        root.title(window_title)
+        root.attributes("-topmost", True)
+        root.lift()
+        root.focus_force()
+
+        if os.name == "nt":
+            try:
+                import ctypes
+                root.update_idletasks()
+                hwnd_named = ctypes.windll.user32.FindWindowW(None, window_title)
+                if hwnd_named:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd_named)
+            except Exception:
+                pass
+
         root.geometry("520x640")
         root.resizable(False, False)
         root.configure(bg="#0F172A")
@@ -92,7 +107,7 @@ class BiometricAuthDialog:
 
         title_lbl = tk.Label(
             header_frame,
-            text="🛡️ PRESENCE GATE: AUTHORIZATION REQUIRED",
+            text="🛡️ OMNIHERMES: AUTHORIZATION REQUIRED",
             font=("Segoe UI", 11, "bold"),
             fg="#F43F5E" if self.risk_level == "CRITICAL" else "#F59E0B",
             bg="#1E293B",
@@ -180,7 +195,7 @@ class BiometricAuthDialog:
             return {
                 "approved": False,
                 "reason": "CAMERA_UNAVAILABLE",
-                "message": "Presence Gate: Could not open camera device. Action blocked.",
+                "message": "OmniHermes: Could not open camera device. Action blocked.",
                 "confidence": 0.0,
                 "liveness_score": 0.0,
             }
@@ -200,7 +215,7 @@ class BiometricAuthDialog:
                 self.result = {
                     "approved": False,
                     "reason": "TIMEOUT",
-                    "message": f"Presence verification timed out ({self.timeout_seconds}s limit). Action blocked.",
+                    "message": f"OmniHermes verification timed out ({self.timeout_seconds}s limit). Action blocked.",
                     "confidence": 0.0,
                     "liveness_score": 0.0,
                 }

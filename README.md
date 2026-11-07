@@ -1,19 +1,19 @@
-# Presence Gate 🛡️👁️
+# OmniHermes 🛡️👁️
 
 > **On-Device Biometric Presence & Face-Verified Security Gate for Hermes Agent**  
 > *Developed for the Hermes Agent Plugin Hackathon by Nous Research*
 
 ---
 
-## What is Presence Gate?
+## What is OmniHermes?
 
 Hermes agents can execute shell commands, alter system files, and call external MCP tools. Standard agent approval workflows rely entirely on text confirmation (`yes/no`). If you step away from your workstation or an indirect prompt injection hijacks your agent session, unauthorized actions can be executed without your awareness.
 
-**Presence Gate** is an on-device biometric security plugin that intercepts high-risk operations via the `pre_tool_call` lifecycle hook. Before a sensitive tool executes, Presence Gate requires real face recognition and multi-layer anti-spoofing verification via your local webcam.
+**OmniHermes** is an on-device biometric security plugin that intercepts high-risk operations via the `pre_tool_call` lifecycle hook. Before a sensitive tool executes, OmniHermes requires real face recognition and multi-layer anti-spoofing verification via your local webcam.
 
 ```mermaid
 flowchart TD
-    A[Hermes Agent Loop] -->|Tool Execution Requested| B(Presence Gate pre_tool_call Hook)
+    A[Hermes Agent Loop] -->|Tool Execution Requested| B(OmniHermes pre_tool_call Hook)
     B --> C{Policy Risk Assessment}
     C -->|Low Risk e.g. read_file in workspace| D[Allow & Execute]
     C -->|High Risk e.g. terminal dangerous commands| E{Active Unlock Window?}
@@ -35,13 +35,13 @@ flowchart TD
 
 ## Guarded Operations & Real Hermes Targets
 
-Presence Gate enforces verification on real built-in Hermes tools and sensitive MCP tools:
+OmniHermes enforces verification on real built-in Hermes tools and sensitive MCP tools:
 
 1. **`terminal`**: Commands matching dangerous patterns:
-   - Destructive deletion: recursive directory removals (`del /s`, `rmdir /s`, `rm -rf <path>`)
-   - Remote execution: downloading and piping remote scripts directly to shell interpreters
-   - Escalated privileges: system administration and privilege elevation commands (`doas`, administrative overrides)
-   - Disk formatting: raw volume formatting utilities
+   - Destructive deletion: recursive directory removals (`del /s`, `rmdir /s`, `rm -rf <path>`, `Remove-Item -Recurse`)
+   - Remote execution: downloading and piping remote scripts directly to shell interpreters (`curl | sh`, `powershell -c ...`)
+   - Escalated privileges: system administration and privilege elevation commands (`sudo`, `doas`, administrative overrides)
+   - Disk formatting: raw volume formatting utilities (`format`, `mkfs`)
    - Unsafe publication: repository publishing or force updates (`npm publish`, `git push --force`)
 2. **`write_file` & `patch`**: Any file modifications targeting paths located outside the current project root directory.
 3. **`delegate_task`**: Any delegation to autonomous subagents.
@@ -53,7 +53,7 @@ All benign read operations (e.g. `read_file`, internal project searches) pass th
 
 ## Multi-Layer Biometric Pipeline
 
-To defeat static photos, smartphone screen replays, and rotated flat photos, Presence Gate combines passive neural anti-spoofing with active behavioral challenges:
+To defeat static photos, smartphone screen replays, and rotated flat photos, OmniHermes combines passive neural anti-spoofing with active behavioral challenges:
 
 1. **Passive Anti-Spoofing (MiniFASNetV2-SE):**
    - Evaluates face crops across $\ge 10$ frames using OpenCV DNN.
@@ -74,13 +74,14 @@ To defeat static photos, smartphone screen replays, and rotated flat photos, Pre
 
 ## Timing & Fail-Closed Execution
 
-- **In-Hook Timeout (22 seconds):** Hermes automatically skips hooks that exceed 30 seconds. To prevent unintended tool execution, Presence Gate limits the interactive hook dialog to 22 seconds. If time expires, the hook returns `{"action": "block"}` with clear instructions:
-  > `"Presence: verify with /presence unlock, then ask me to retry."`
-- **Interactive Unlock Window (`/presence unlock` / `python -m presence.unlock`):**
+- **In-Hook Timeout (22 seconds):** Hermes automatically skips hooks that exceed 30 seconds. To prevent unintended tool execution, OmniHermes limits the interactive hook dialog to 22 seconds. If time expires, the hook returns `{"action": "block"}` with clear instructions:
+  > `"OmniHermes: verify with /omnihermes unlock, then ask me to retry."`
+- **Interactive Slash Command (`/omnihermes unlock` / `python -m omnihermes.unlock`):**
   - Allows an extended **5-minute (300s)** window with a visible on-screen HUD countdown.
   - Upon successful verification, grants a **120-second execution grace period** so the agent can execute multi-step sensitive tasks without repeated prompts.
   - **Away Revocation:** If the background desk presence monitor detects that you stepped away (`STATUS: AWAY`), the unlock window is **instantly revoked**.
-- **Automated / Headless Guard:** In headless environments, cron jobs, or gateway server sessions where no display is available, Presence Gate immediately blocks sensitive operations fail-closed.
+- **Automated / Headless Guard:** In headless environments, cron jobs, or gateway server sessions where no display is available, OmniHermes immediately blocks sensitive operations fail-closed:
+  > `"OmniHermes: verify with /omnihermes unlock, then ask me to retry."`
 
 ---
 
@@ -97,22 +98,32 @@ To defeat static photos, smartphone screen replays, and rotated flat photos, Pre
 ### 2. Enroll the Primary Workstation Owner
 Enroll yourself as the primary owner:
 ```bash
-python -m presence.enroll --name "Elijah" --primary
+python -m omnihermes.enroll --name "Elijah" --primary
 ```
 The camera window will open, present the dual liveness challenges, capture 5 verified frames, average the SFace embeddings, encrypt them using AES-256-GCM, and save your profile locally.
 
 ### 3. Verify Your Setup
 Run the diagnostic verification tool:
 ```bash
-python -m presence.verify
+python -m omnihermes.verify
 ```
 For detailed instructions on testing yourself, an impostor, printed photos, or a covered camera, see [TESTING.md](TESTING.md).
 
 ---
 
+## Slash Commands
+
+OmniHermes integrates natively with Hermes Agent's command system:
+
+- `/omnihermes status` — Check enrollment status, policy mode, active unlock timer, and audit integrity.
+- `/omnihermes unlock` — Launch interactive 5-minute face verification to grant a 2-minute execution grace period.
+- `/omnihermes enroll` — Launch the webcam enrollment flow directly from Hermes.
+
+---
+
 ## Configuration
 
-Settings can be managed via the `presence_configure` tool or by editing `config.json` in the plugin data directory:
+Settings can be managed via the `omnihermes_configure` tool or by editing `config.json` in the plugin data directory:
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -127,7 +138,7 @@ Settings can be managed via the `presence_configure` tool or by editing `config.
 
 ## Limitations
 
-- **Anti-Spoofing Scope:** Presence Gate is designed to defeat static printed photos, screen replays, and planar rotation attacks. It is not an ISO/IEC 30107-3 certified biometric presentation attack detection system.
+- **Anti-Spoofing Scope:** OmniHermes is designed to defeat static printed photos, screen replays, and planar rotation attacks. It is not an ISO/IEC 30107-3 certified biometric presentation attack detection system.
 - **Lighting & Camera Quality:** Severe underexposure or poor camera resolution can increase false rejection rates.
 - **Hardware Variation:** Camera field-of-view and optical distortion may affect landmark coordinates slightly; default thresholds are calibrated for standard 720p/1080p webcams.
 
@@ -135,7 +146,7 @@ Settings can be managed via the `presence_configure` tool or by editing `config.
 
 ## Disclosures
 
-- **Webcam Access:** Presence Gate accesses your webcam device solely to detect faces, evaluate active challenges, and verify facial similarity. The video stream is processed in real time in volatile memory.
+- **Webcam Access:** OmniHermes accesses your webcam device solely to detect faces, evaluate active challenges, and verify facial similarity. The video stream is processed in real time in volatile memory.
 - **Local-Only Processing:** No images or video frames are ever uploaded to cloud servers or transmitted over the network.
 - **Model Download Sources & Checksums:** Vision models are downloaded on first run from official repositories and verified against hard-coded SHA-256 checksums before loading:
   - YuNet (`face_detection_yunet_2023mar.onnx`): `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4` (~232 KB, OpenCV Zoo)
@@ -147,4 +158,4 @@ Settings can be managed via the `presence_configure` tool or by editing `config.
 - **What is Stored & Where:**
   - Enrolled Profile (`profile.enc`): Stores 128-dimensional numerical float vectors encrypted with AES-256-GCM. **Zero raw facial photographs are saved on disk.**
   - Audit Trail (`audit.jsonl`): Cryptographically chained with SHA-256 block hashes, logging timestamps, tool names, similarity scores, and verification outcomes.
-  - Storage Location: Saved locally in your user profile directory (`~/.hermes/presence-gate/` or `.data/`).
+  - Storage Location: Saved locally in your user profile directory (`~/.hermes/omnihermes/` or `.data/`).

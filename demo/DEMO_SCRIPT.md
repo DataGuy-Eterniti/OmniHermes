@@ -1,4 +1,4 @@
-# Presence Gate — 90-Second Demo Video Script 🎬
+# OmniHermes — 90-Second Demo Video Script 🎬
 
 > **Hackathon Submission Video Guide**  
 > *Target Duration: < 90 seconds*  
@@ -10,7 +10,7 @@
 
 1. **Enrolled Owner:** Ensure Elijah is enrolled:
    ```bash
-   python -m presence.enroll --name "Elijah" --primary
+   python -m omnihermes.enroll --name "Elijah" --primary
    ```
 2. **Test Folder:** Create a harmless dummy folder for the deletion demo:
    ```bash
@@ -25,9 +25,9 @@
 ## 90-Second Scene-by-Scene Timeline
 
 ### 0:00 – 0:12 | Scene 1: Introduction & Security Posture
-- **Visual:** Terminal showing Hermes Agent running with Presence Gate active. Hermes Desktop status bar displays `🛡️ Presence: Protected`.
+- **Visual:** Terminal showing Hermes Agent running with OmniHermes active. Hermes Desktop status bar displays `🛡️ OmniHermes: Protected`.
 - **Narration:**  
-  *"Autonomous agents have real shell access, financial authority, and API keys, but approvals are just text prompts anyone can click. Presence Gate gives Hermes hardware-verified physical identity."*
+  *"Autonomous agents have real shell access, financial authority, and API keys, but approvals are just text prompts anyone can click. OmniHermes gives Hermes hardware-verified physical identity."*
 
 ---
 
@@ -36,7 +36,7 @@
   ```text
   "Hermes, read the project README.md"
   ```
-- **Visual:** Hermes calls `read_file`. Presence Gate's `pre_tool_call` hook checks the policy, classifies it as `LOW` risk, and lets it execute immediately without prompting.
+- **Visual:** Hermes calls `read_file`. OmniHermes's `pre_tool_call` hook checks the policy, classifies it as `LOW` risk, and lets it execute immediately without prompting.
 - **Narration:**  
   *"Benign workspace operations execute with zero friction."*
 
@@ -48,13 +48,13 @@
   "Hermes, delete the test_dir folder using rm -rf"
   ```
 - **Visual:**
-  - Presence Gate intercepts `terminal` matching `rm -rf`.
+  - OmniHermes intercepts `terminal` matching `rm -rf`.
   - The camera modal opens with the active challenge: *"Turn your head to the LEFT"* (or *"Blink twice"*).
   - Elijah looks at the camera, completes the challenge.
   - SFace cosine similarity matches (> 0.3630). Bounding box flashes green `✔ APPROVED`.
   - Hermes executes the command and reports success.
 - **Narration:**  
-  *"When a destructive terminal command is issued, Presence Gate pauses execution. It requires real face recognition and an unpredictable live challenge. I verify, and the action proceeds."*
+  *"When a destructive terminal command is issued, OmniHermes pauses execution. It requires real face recognition and an unpredictable live challenge. I verify, and the action proceeds."*
 
 ---
 
@@ -68,23 +68,23 @@
 ---
 
 ### 0:60 – 0:75 | Scene 5: Desk Absence Tracking
-- **Action:** Elijah steps away from the chair. The status indicator switches to `🔒 Presence: Away (Locked)`.
+- **Action:** Elijah steps away from the chair. The status indicator switches to `🔒 OmniHermes: Away (Locked)`.
 - **Action:** Issue another sensitive command (e.g. `npm publish`).
 - **Visual:** Action is quarantined instantly:  
-  `"Presence: action 'terminal' paused: workstation owner is away."`
+  `"OmniHermes: action 'terminal' paused: workstation owner is away. OmniHermes: verify with /omnihermes unlock, then ask me to retry."`
 - **Narration:**  
-  *"If I step away from my desk, Presence Gate automatically quarantines dangerous operations until I return."*
+  *"If I step away from my desk, OmniHermes automatically quarantines dangerous operations until I return."*
 
 ---
 
 ### 0:75 – 0:90 | Scene 6: Cryptographic Audit Ledger & Conclusion
 - **Action:** View the audit log:
   ```bash
-  python -c "from presence.audit import AuditLogger; print(AuditLogger().verify_integrity())"
+  python -c "from omnihermes.audit import AuditLogger; print(AuditLogger().verify_integrity())"
   ```
 - **Visual:** Shows SHA-256 hash-chained entries verifying 100% tamper-evident integrity.
 - **Narration:**  
-  *"Every decision is logged to an immutable SHA-256 hash chain with zero raw face photos stored. Presence Gate makes Hermes safe for production."*
+  *"Every decision is logged to an immutable SHA-256 hash chain with zero raw face photos stored. OmniHermes makes Hermes safe for production."*
 
 ---
 
@@ -92,4 +92,3 @@
 - Keep camera lighting clear and even.
 - Make sure terminal font size is set to at least 16pt for readability on mobile/X video feeds.
 - End the video on the verified audit output and the Nous Research hackathon tag!
-

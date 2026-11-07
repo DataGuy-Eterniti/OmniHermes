@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from presence.crypto import decrypt_payload, encrypt_payload
-from presence.models import ensure_models, get_default_data_dir
+from omnihermes.crypto import decrypt_payload, encrypt_payload
+from omnihermes.models import ensure_models, get_default_data_dir
 
 # OpenCV recommended threshold for SFace cosine similarity is 0.363
 DEFAULT_COSINE_THRESHOLD = 0.363
@@ -61,7 +61,7 @@ class BiometricEngine:
             self._enrolled_profile = decrypted
             return True
         except Exception as e:
-            print(f"[Presence] Warning: Failed to decrypt profile: {e}")
+            print(f"[OmniHermes] Warning: Failed to decrypt profile: {e}")
             self._enrolled_profile = None
             return False
 
