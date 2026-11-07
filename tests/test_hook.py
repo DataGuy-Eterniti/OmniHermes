@@ -132,8 +132,10 @@ class TestHookInterceptor(unittest.TestCase):
                 arguments={"command": "rm -rf /test"},
             )
             self.assertEqual(result.get("action"), "block")
-            self.assertIn("away", result.get("message", "").lower())
-            self.assertIn("/omnihermes unlock", result.get("message", ""))
+            self.assertEqual(
+                result.get("message"),
+                "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+            )
 
     def test_cached_presence_mode_with_mock_embedding(self):
         """Mock Test: Cached presence mode approves when user is actively present."""
@@ -169,7 +171,10 @@ class TestHookInterceptor(unittest.TestCase):
             context=mock_ctx,
         )
         self.assertEqual(result.get("action"), "block")
-        self.assertIn("verify with /omnihermes unlock", result.get("message", ""))
+        self.assertEqual(
+            result.get("message"),
+            "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+        )
 
     def test_hook_blocks_with_no_display(self):
         """Mock Test: Blocks headless/gateway sessions where no GUI can open."""
@@ -183,7 +188,10 @@ class TestHookInterceptor(unittest.TestCase):
             context=mock_ctx,
         )
         self.assertEqual(result.get("action"), "block")
-        self.assertIn("verify with /omnihermes unlock", result.get("message", ""))
+        self.assertEqual(
+            result.get("message"),
+            "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+        )
 
     def test_hook_blocks_on_timeout(self):
         """Task 3d: Blocks execution when interactive dialog reaches internal timeout."""
@@ -200,7 +208,7 @@ class TestHookInterceptor(unittest.TestCase):
                 self.assertEqual(result.get("action"), "block")
                 self.assertEqual(
                     result.get("message"),
-                    "OmniHermes: verify with /omnihermes unlock, then ask me to retry.",
+                    "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
                 )
 
     def test_hook_blocks_on_camera_failure(self):
@@ -216,8 +224,10 @@ class TestHookInterceptor(unittest.TestCase):
                     arguments={"command": "rm -rf 'C:/Users/USER/presence-test/junk'"},
                 )
                 self.assertEqual(result.get("action"), "block")
-                self.assertIn("denied", result.get("message", ""))
-                self.assertIn("Could not open camera device", result.get("message", ""))
+                self.assertEqual(
+                    result.get("message"),
+                    "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+                )
 
     def test_hook_blocks_on_exception(self):
         """Task 3d: Fail-closed guarantee — blocks if any unexpected exception occurs."""
@@ -279,7 +289,10 @@ class TestHookInterceptor(unittest.TestCase):
                 arguments={"command": "rmdir /s /q testdir"},
             )
             self.assertEqual(res2.get("action"), "block")
-            self.assertIn("verify with /omnihermes unlock", res2.get("message", "").lower())
+            self.assertEqual(
+                res2.get("message"),
+                "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+            )
 
     def test_unlock_revoked_when_away(self):
         """Stepping away immediately revokes an active unlock window."""
@@ -293,7 +306,10 @@ class TestHookInterceptor(unittest.TestCase):
                 arguments={"command": "npm publish"},
             )
             self.assertEqual(result.get("action"), "block")
-            self.assertIn("away", result.get("message", "").lower())
+            self.assertEqual(
+                result.get("message"),
+                "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+            )
             self.assertFalse(get_unlock_manager().is_unlocked(is_away=True))
 
     def test_debug_log_is_written_on_hook_call(self):

@@ -200,7 +200,7 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
             )
             return_val = {
                 "action": "block",
-                "message": "OmniHermes: verify with /omnihermes unlock, then ask me to retry.",
+                "message": "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
             }
             return return_val
 
@@ -261,10 +261,7 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
             )
             return_val = {
                 "action": "block",
-                "message": (
-                    f"OmniHermes: action '{tool_name}' ({risk_level} Risk) was paused: "
-                    f"workstation owner is away. OmniHermes: verify with /omnihermes unlock, then ask me to retry."
-                ),
+                "message": "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
             }
             return return_val
 
@@ -328,17 +325,10 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
                 details={"risk_level": risk_level, "message": msg},
             )
 
-            # If timed out or user cancelled, guide user to unlock flow
-            if reason in ["TIMEOUT", "USER_REJECTED", "HEADLESS_OR_NO_DISPLAY", "NO_DISPLAY_FOUND"]:
-                return_val = {
-                    "action": "block",
-                    "message": "OmniHermes: verify with /omnihermes unlock, then ask me to retry.",
-                }
-                return return_val
-
+            # If denied, timed out, or user cancelled, guide user to unlock flow
             return_val = {
                 "action": "block",
-                "message": f"OmniHermes: face verification denied for '{tool_name}'. Reason: {msg}",
+                "message": "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
             }
             return return_val
 

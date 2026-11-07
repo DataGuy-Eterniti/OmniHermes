@@ -21,6 +21,71 @@ try:
 except (ImportError, ValueError):
     from .models import get_default_data_dir, assert_not_real_data_dir
 
+READONLY_TERMINAL_COMMANDS = {
+    "ls", "dir", "pwd", "cd", "cat", "type", "head", "tail", "echo",
+    "whoami", "where", "which", "git", "date", "time", "hostname", "uname",
+    "clear", "cls", "env", "printenv", "id", "findstr", "grep", "wc"
+}
+
+READONLY_GIT_SUBCOMMANDS = {
+    "status", "log", "diff", "branch", "show", "remote", "version", "help"
+}
+
+
+def is_terminal_command_readonly(cmd: str) -> bool:
+    """Evaluate whether a shell command is strictly read-only.
+    
+    Default-deny: while locked, all terminal calls are HIGH risk unless every
+    piped/chained segment is explicitly in the read-only allowlist.
+    Disallows file-writing redirects (> >>), shell execution pipes (| sh), etc.
+    """
+    if not cmd or not cmd.strip():
+        return False
+
+    raw = cmd.strip()
+
+    # Reject any write redirection (> or >>)
+    if ">" in raw:
+        return False
+
+    # Split command into chained/piped segments: &&, ||, ;, |, \n
+    segments = re.split(r"&&|\|\||;|\||\n", raw)
+
+    for seg in segments:
+        seg = seg.strip()
+        if not seg:
+            continue
+
+        # Remove leading env vars (e.g. "FOO=1 ls" or "$env:FOO='1';")
+        parts = [p.strip("\"'") for p in seg.split() if p.strip("\"'")]
+        while parts and "=" in parts[0] and not parts[0].startswith("-"):
+            parts.pop(0)
+
+        if not parts:
+            return False
+
+        # Extract base executable name
+        base_cmd = parts[0].replace("\\", "/").split("/")[-1].lower()
+        if base_cmd.endswith(".exe"):
+            base_cmd = base_cmd[:-4]
+
+        # Check against allowed commands
+        if base_cmd not in READONLY_TERMINAL_COMMANDS:
+            return False
+
+        # If base command is git, verify the subcommand is read-only
+        if base_cmd == "git":
+            subcmd = None
+            for p in parts[1:]:
+                if not p.startswith("-"):
+                    subcmd = p.lower()
+                    break
+            if not subcmd or subcmd not in READONLY_GIT_SUBCOMMANDS:
+                return False
+
+    return True
+
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": True,
     "mode": "strict",  # "strict" (always prompt), "cached_presence" (allow if owner seen within grace period)
@@ -144,7 +209,7 @@ class PolicyEngine:
                 "reason": "OmniHermes enforcement is disabled in settings.",
             }
 
-        # 1. Terminal / Shell command inspection
+        # 1. Terminal / Shell command inspection (Default-Deny while locked)
         if tool_name in ["terminal", "bash", "shell", "run_command", "execute_command"]:
             cmd_val = (
                 arguments.get("command")
@@ -165,35 +230,35 @@ class PolicyEngine:
                 cmd_val = " ".join(str(x) for x in cmd_val)
             cmd = str(cmd_val or "").strip()
 
-            # Default to safe: if the risk check can't parse a terminal command or arguments are empty, treat as risky
-            if not cmd or cmd == "{}" or cmd == "None":
+            if is_terminal_command_readonly(cmd):
                 return {
-                    "requires_biometric": True,
-                    "risk_level": "HIGH",
-                    "reason": "Terminal command is empty or could not be parsed; defaulting to safe.",
+                    "requires_biometric": False,
+                    "risk_level": "LOW",
+                    "reason": "Allowlisted read-only terminal command.",
                 }
 
-            for pattern in self.config.get("dangerous_terminal_patterns", []):
-                if re.search(pattern, cmd):
-                    return {
-                        "requires_biometric": True,
-                        "risk_level": "HIGH",
-                        "reason": f"Terminal command matches protected pattern '{pattern}'",
-                    }
             return {
-                "requires_biometric": False,
-                "risk_level": "LOW",
-                "reason": "Terminal command does not match dangerous patterns.",
+                "requires_biometric": True,
+                "risk_level": "HIGH",
+                "reason": "Action requires biometric face verification.",
             }
 
-        # 2. File write tools outside project folder
+        # 2. Code execution tools are guarded by default
+        if tool_name in ["execute_code", "code_execution", "run_code"]:
+            return {
+                "requires_biometric": True,
+                "risk_level": "HIGH",
+                "reason": "Action requires biometric face verification.",
+            }
+
+        # 3. File write tools outside project folder
         if tool_name in self.config.get("file_tools", ["write_file", "patch"]):
             path_arg = str(arguments.get("path", "") or arguments.get("file_path", "") or "")
             if path_arg and self.is_path_outside_project(path_arg):
                 return {
                     "requires_biometric": True,
                     "risk_level": "CRITICAL",
-                    "reason": f"Operation touches file outside project root: '{path_arg}'",
+                    "reason": "Action touches file outside project boundary.",
                 }
             return {
                 "requires_biometric": False,
@@ -201,12 +266,12 @@ class PolicyEngine:
                 "reason": "File operation is within project boundary.",
             }
 
-        # 3. Direct guarded tools (e.g. delegate_task)
-        if tool_name in self.config.get("guarded_tools", []):
+        # 4. Direct guarded tools (e.g. delegate_task)
+        if tool_name in self.config.get("guarded_tools", ["delegate_task"]):
             return {
                 "requires_biometric": True,
                 "risk_level": "HIGH",
-                "reason": f"Tool '{tool_name}' is in guarded tools policy.",
+                "reason": "Action requires biometric face verification.",
             }
 
         # 4. MCP Tools - Sensitive keywords inspection
