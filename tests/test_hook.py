@@ -12,6 +12,7 @@ Tests fail-closed behavior across critical error scenarios:
 
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -47,7 +48,10 @@ class TestHookInterceptor(unittest.TestCase):
         self.debug_patcher.stop()
         tools.reset_singletons(None)
         os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_benign_tool_allowed_instantly(self):
         """Live Test: Benign read operation should pass without biometric check."""
@@ -249,6 +253,33 @@ class TestHookInterceptor(unittest.TestCase):
                 arguments={"command": "npm publish"},
             )
             self.assertEqual(result.get("action"), "allow")
+
+    def test_unlock_window_120s_lifecycle(self):
+        """Item 1: unlock -> risky terminal call within 120 s -> allowed; after 120 s -> blocked."""
+        from omnihermes.tools import get_unlock_manager
+        with patch.object(get_biometrics(), "is_enrolled", return_value=True):
+            # 1. Grant 120s unlock
+            get_unlock_manager().grant_unlock("Elijah", duration_seconds=120)
+
+            # 2. Risky call within 120s -> allowed
+            res1 = omnihermes_gate.on_pre_tool_call(
+                tool_name="terminal",
+                arguments={"command": "rmdir /s /q testdir"},
+            )
+            self.assertEqual(res1.get("action"), "allow")
+
+            # 3. Simulate expiry after 120s
+            mgr = get_unlock_manager()
+            mgr._unlocked_until = time.time() - 5.0
+            mgr._save_state()
+
+            # 4. Same risky call after 120s -> blocked
+            res2 = omnihermes_gate.on_pre_tool_call(
+                tool_name="terminal",
+                arguments={"command": "rmdir /s /q testdir"},
+            )
+            self.assertEqual(res2.get("action"), "block")
+            self.assertIn("verify with /omnihermes unlock", res2.get("message", "").lower())
 
     def test_unlock_revoked_when_away(self):
         """Stepping away immediately revokes an active unlock window."""

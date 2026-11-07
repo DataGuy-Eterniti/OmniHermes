@@ -225,6 +225,9 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
 
         # 3. Check active unlock grace window (ends early if owner is away)
         if unlock_mgr.is_unlocked(is_away=presence.is_away()):
+            rem_s = unlock_mgr.get_remaining_seconds()
+            log_msg = f"allowed: unlock window active, {rem_s} s left"
+            risk_decision = log_msg
             audit.log_event(
                 event_type="INTERCEPT_APPROVED_UNLOCKED",
                 user_name="PrimaryOwner",
@@ -233,8 +236,16 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
                 result="APPROVED_UNLOCKED",
                 similarity_score=1.0,
                 liveness_score=1.0,
-                details={"risk_level": risk_level, "remaining_seconds": unlock_mgr.get_remaining_seconds()},
+                details={"risk_level": risk_level, "remaining_seconds": rem_s, "message": log_msg},
             )
+            try:
+                DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                pid = os.getpid()
+                with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+                    f.write(f"[{ts}] [PID:{pid}] tool='{tool_name}' allowed: unlock window active, {rem_s} s left\n")
+            except Exception:
+                pass
             return_val = {"action": "allow"}
             return return_val
 

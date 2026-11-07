@@ -54,6 +54,7 @@ class UnlockManager:
 
     def is_unlocked(self, is_away: bool = False) -> bool:
         """Check if unlock window is currently active. Revokes if away."""
+        self._load_state()
         now = time.time()
         if now >= self._unlocked_until:
             return False
@@ -66,6 +67,7 @@ class UnlockManager:
 
     def get_remaining_seconds(self) -> int:
         """Get seconds remaining on active unlock window."""
+        self._load_state()
         remaining = int(self._unlocked_until - time.time())
         return max(0, remaining)
 
@@ -75,6 +77,14 @@ class UnlockManager:
         self._unlocked_until = now + duration_seconds
         self._unlocked_by = user_name
         self._save_state()
+
+        # Unlock definitively marks user present and resets away-detection
+        try:
+            from core.away import PresenceMonitor
+            pres = PresenceMonitor(data_dir=self.data_dir)
+            pres.mark_seen(user_name=user_name)
+        except Exception:
+            pass
 
         audit = AuditLogger(data_dir=self.data_dir)
         audit.log_event(
