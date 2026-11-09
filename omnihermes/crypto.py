@@ -48,11 +48,15 @@ def get_or_generate_key(data_dir: Optional[Path] = None, explicit_key: Optional[
     base_dir = data_dir or get_default_data_dir()
     key_file = base_dir / ".secret_key"
     if key_file.exists():
-        key_data = key_file.read_bytes().strip()
+        key_data = key_file.read_bytes()
         if len(key_data) == 32:
             return key_data
+        # If it was text-encoded or had trailing whitespace/newlines
+        stripped = key_data.strip()
+        if len(stripped) == 32:
+            return stripped
         try:
-            decoded = base64.b64decode(key_data)
+            decoded = base64.b64decode(stripped)
             if len(decoded) == 32:
                 return decoded
         except Exception:
