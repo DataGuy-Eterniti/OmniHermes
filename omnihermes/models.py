@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import urllib.request
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -140,6 +139,7 @@ def download_model(name: str, target_path: Path) -> Path:
         temp_path.unlink()
 
     print(f"[OmniHermes] Downloading {name} ({spec['filename']})...")
+    import urllib.request
     req = urllib.request.Request(spec["url"], headers={"User-Agent": "Mozilla/5.0 (OmniHermes)"})
     with urllib.request.urlopen(req) as response, open(temp_path, "wb") as out_file:
         while chunk := response.read(65536):

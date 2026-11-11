@@ -146,3 +146,28 @@ class AuditLogger:
             "message": f"Cryptographic integrity verified across {count} records." if count > 0 else "Audit chain empty.",
         }
 
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="OmniHermes - Cryptographic Audit Log Verification")
+    parser.add_argument("--verify", action="store_true", help="Verify SHA-256 HMAC hash chain integrity")
+    args = parser.parse_args()
+
+    logger = AuditLogger()
+    report = logger.verify_integrity()
+    print("=" * 60)
+    print("OMNIHERMES - CRYPTOGRAPHIC AUDIT LOG INTEGRITY REPORT")
+    print("=" * 60)
+    print(f"• Log Path:        {logger.log_path}")
+    print(f"• Entries Checked: {report.get('count', 0)}")
+    print(f"• Status:          {report.get('status', 'UNKNOWN')}")
+    print(f"• Valid Chain:     {report.get('valid', False)}")
+    print(f"• Tip Hash:        {report.get('tip_hash', '')[:24]}...")
+    print(f"• Message:         {report.get('message', '')}")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
+
+

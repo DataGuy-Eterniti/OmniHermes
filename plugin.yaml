@@ -27,6 +27,10 @@ config_schema:
     type: bool
     default: true
     description: "Enable or disable biometric gate enforcement."
+  debug_logging:
+    type: bool
+    default: false
+    description: "Write verbose hook telemetry and debugging to hook_debug.log."
   mode:
     type: str
     default: "strict"

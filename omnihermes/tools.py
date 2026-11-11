@@ -4,24 +4,33 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
-
-import numpy as np
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 try:
     from .audit import AuditLogger
-    from .biometrics import BiometricEngine
-    from .enroll import run_enrollment
-    from .unlock import UnlockManager, run_unlock_interactive
+    from .unlock import UnlockManager
     from core.policy import PolicyEngine
     from core.away import PresenceMonitor
 except (ImportError, ValueError):
     from omnihermes.audit import AuditLogger
-    from omnihermes.biometrics import BiometricEngine
-    from omnihermes.enroll import run_enrollment
-    from omnihermes.unlock import UnlockManager, run_unlock_interactive
+    from omnihermes.unlock import UnlockManager
     from core.policy import PolicyEngine
     from core.away import PresenceMonitor
+
+if TYPE_CHECKING:
+    from omnihermes.biometrics import BiometricEngine
+
+
+def run_enrollment(*args: Any, **kwargs: Any) -> bool:
+    """Lazily import and invoke interactive camera enrollment."""
+    from omnihermes.enroll import run_enrollment as _impl
+    return _impl(*args, **kwargs)
+
+
+def run_unlock_interactive(*args: Any, **kwargs: Any) -> bool:
+    """Lazily import and invoke interactive camera unlock."""
+    from omnihermes.unlock import run_unlock_interactive as _impl
+    return _impl(*args, **kwargs)
 
 
 # Shared singletons
@@ -36,6 +45,7 @@ def reset_singletons(data_dir: Optional[Path] = None) -> None:
     """Reset shared singletons. If data_dir is provided, binds all engines to it for isolated tests."""
     global _biometrics, _policy, _audit, _presence, _unlock_manager
     if data_dir is not None:
+        from omnihermes.biometrics import BiometricEngine
         p = Path(data_dir)
         _biometrics = BiometricEngine(data_dir=p)
         _policy = PolicyEngine(config_path=p / "config.json", project_root=p)
@@ -60,6 +70,7 @@ def get_unlock_manager() -> UnlockManager:
 def get_biometrics() -> BiometricEngine:
     global _biometrics
     if _biometrics is None:
+        from omnihermes.biometrics import BiometricEngine
         _biometrics = BiometricEngine()
     return _biometrics
 
@@ -121,6 +132,7 @@ def handle_omnihermes_enroll(arguments: Dict[str, Any]) -> str:
     test_embedding = arguments.get("test_embedding")
 
     if test_embedding is not None:
+        import numpy as np
         bio = get_biometrics()
         bio.save_profile(owner_name, np.array(test_embedding, dtype=np.float32), is_primary=is_primary)
         get_presence().mark_seen(owner_name)
@@ -212,14 +224,14 @@ def handle_omnihermes_unlock(arguments: Dict[str, Any]) -> str:
     if success:
         result = {
             "status": "success",
-            "message": f"Workstation unlocked. High-risk actions will execute without prompt for {duration} seconds.",
+            "message": "OmniHermes: face verified. Risky actions are allowed for the next 120 seconds, then the gate locks again.",
             "unlocked": True,
             "duration_seconds": duration,
         }
     else:
         result = {
             "status": "failed",
-            "message": f"{reason} Workstation remains locked.",
+            "message": "Biometric verification failed or was cancelled. Workstation remains locked.",
             "unlocked": False,
         }
     return json.dumps(result, ensure_ascii=False, indent=2)

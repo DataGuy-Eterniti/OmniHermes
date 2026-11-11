@@ -8,23 +8,15 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, Optional
-
-import cv2
-import numpy as np
-from PIL import Image, ImageTk
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 try:
     import tkinter as tk
 except ImportError:
     tk = None
 
-try:
-    from ..omnihermes.biometrics import BiometricEngine
-    from ..omnihermes.liveness import LivenessSession
-except (ImportError, ValueError):
+if TYPE_CHECKING:
     from omnihermes.biometrics import BiometricEngine
-    from omnihermes.liveness import LivenessSession
 
 
 class BiometricAuthDialog:
@@ -194,6 +186,14 @@ class BiometricAuthDialog:
             cursor="hand2",
         )
         cancel_btn.pack(side=tk.RIGHT)
+
+        # Lazy imports: only load CV/MediaPipe/PIL when camera dialog actually opens
+        import cv2
+        from PIL import Image, ImageTk
+        try:
+            from ..omnihermes.liveness import LivenessSession
+        except (ImportError, ValueError):
+            from omnihermes.liveness import LivenessSession
 
         # Open Webcam
         cap = cv2.VideoCapture(self.camera_index)

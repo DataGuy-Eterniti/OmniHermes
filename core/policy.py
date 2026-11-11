@@ -88,6 +88,7 @@ def is_terminal_command_readonly(cmd: str) -> bool:
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "enabled": True,
+    "debug_logging": False,
     "mode": "strict",  # "strict" (always prompt), "cached_presence" (allow if owner seen within grace period)
     "cache_ttl_seconds": 60,
     "min_match_confidence": 0.363,  # OpenCV SFace recommended threshold

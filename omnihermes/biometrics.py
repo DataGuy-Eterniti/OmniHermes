@@ -11,9 +11,6 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import cv2
-import numpy as np
-
 from omnihermes.crypto import decrypt_payload, encrypt_payload
 from omnihermes.models import ensure_models, get_default_data_dir, assert_not_real_data_dir
 
@@ -22,20 +19,34 @@ DEFAULT_COSINE_THRESHOLD = 0.363
 
 
 class BiometricEngine:
-    """Manages YuNet face detection and SFace feature extraction."""
+    """Manages YuNet face detection and SFace feature extraction with lazy model loading."""
 
     def __init__(self, data_dir: Optional[Path] = None, cosine_threshold: float = DEFAULT_COSINE_THRESHOLD):
         self.data_dir = data_dir or get_default_data_dir()
         self.cosine_threshold = cosine_threshold
         self.profile_path = self.data_dir / "profile.enc"
 
-        # Ensure ONNX model files are downloaded & verified
-        self.models = ensure_models(self.data_dir)
-        self.yunet_path = str(self.models["yunet"])
-        self.sface_path = str(self.models["sface"])
+        # Lazy-initialized ONNX model handles (never loaded at plugin startup/register)
+        self._models: Optional[Dict[str, Path]] = None
+        self.yunet_path: Optional[str] = None
+        self.sface_path: Optional[str] = None
+        self._detector: Any = None
+        self._recognizer: Any = None
 
-        # Initialize OpenCV DNN models
-        self.detector = cv2.FaceDetectorYN.create(
+        self._enrolled_profile: Optional[Dict[str, Any]] = None
+        self._load_profile()
+
+    def _ensure_models(self) -> None:
+        """Lazily verify/download ONNX models and initialize OpenCV DNN handles on demand."""
+        if self._detector is not None and self._recognizer is not None:
+            return
+        import cv2
+
+        self._models = ensure_models(self.data_dir)
+        self.yunet_path = str(self._models["yunet"])
+        self.sface_path = str(self._models["sface"])
+
+        self._detector = cv2.FaceDetectorYN.create(
             self.yunet_path,
             "",
             (320, 320),
@@ -43,13 +54,26 @@ class BiometricEngine:
             nms_threshold=0.3,
             top_k=5000,
         )
-        self.recognizer = cv2.FaceRecognizerSF.create(self.sface_path, "")
+        self._recognizer = cv2.FaceRecognizerSF.create(self.sface_path, "")
 
-        self._enrolled_profile: Optional[Dict[str, Any]] = None
-        self._load_profile()
+    @property
+    def models(self) -> Dict[str, Path]:
+        self._ensure_models()
+        assert self._models is not None
+        return self._models
+
+    @property
+    def detector(self) -> Any:
+        self._ensure_models()
+        return self._detector
+
+    @property
+    def recognizer(self) -> Any:
+        self._ensure_models()
+        return self._recognizer
 
     def _load_profile(self) -> bool:
-        """Load and decrypt enrolled owner profile."""
+        """Load and decrypt enrolled owner profile without triggering CV/model imports."""
         if not self.profile_path.exists():
             self._enrolled_profile = None
             return False
@@ -57,7 +81,6 @@ class BiometricEngine:
             with open(self.profile_path, "r", encoding="utf-8") as f:
                 enc_data = json.load(f)
             decrypted = decrypt_payload(enc_data, data_dir=self.data_dir)
-            decrypted["embedding"] = np.array(decrypted["embedding"], dtype=np.float32).reshape(1, 128)
             self._enrolled_profile = decrypted
             return True
         except Exception as e:
@@ -95,6 +118,7 @@ class BiometricEngine:
 
     def extract_embedding(self, frame: np.ndarray, face: np.ndarray) -> np.ndarray:
         """Crop, align, and extract 128-d normalized embedding using SFace."""
+        import numpy as np
         aligned = self.recognizer.alignCrop(frame, face)
         embedding = self.recognizer.feature(aligned)
         # Normalize to unit length
@@ -105,8 +129,10 @@ class BiometricEngine:
 
     def compute_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """Compute cosine similarity between two 128-d embeddings."""
-        emb1 = emb1.reshape(1, 128).astype(np.float32)
-        emb2 = emb2.reshape(1, 128).astype(np.float32)
+        import cv2
+        import numpy as np
+        emb1 = np.asarray(emb1, dtype=np.float32).reshape(1, 128)
+        emb2 = np.asarray(emb2, dtype=np.float32).reshape(1, 128)
         score = self.recognizer.match(emb1, emb2, cv2.FaceRecognizerSF_FR_COSINE)
         return float(score)
 
@@ -114,15 +140,17 @@ class BiometricEngine:
         """Compare candidate embedding against the enrolled owner."""
         if not self._enrolled_profile:
             return False, 0.0
-        owner_emb = self._enrolled_profile["embedding"]
+        import numpy as np
+        owner_emb = np.asarray(self._enrolled_profile["embedding"], dtype=np.float32).reshape(1, 128)
         score = self.compute_similarity(candidate_emb, owner_emb)
         passed = score >= self.cosine_threshold
         return passed, score
 
     def save_profile(self, owner_name: str, embedding: np.ndarray, is_primary: bool = True) -> Dict[str, Any]:
         """Encrypt and save the owner profile."""
+        import numpy as np
         assert_not_real_data_dir(self.profile_path, operation="save_profile")
-        norm_emb = embedding.reshape(1, 128).astype(np.float32)
+        norm_emb = np.asarray(embedding, dtype=np.float32).reshape(1, 128)
         norm = np.linalg.norm(norm_emb)
         if norm > 1e-6:
             norm_emb = norm_emb / norm

@@ -84,6 +84,17 @@ except (ImportError, ValueError):
 DEBUG_LOG_PATH = Path.home() / ".hermes" / "omnihermes" / "hook_debug.log"
 
 
+def is_debug_logging_enabled() -> bool:
+    """Check if debug logging is enabled via environment or config. Off by default."""
+    if os.environ.get("OMNIHERMES_DEBUG") in ("1", "true", "True") or os.environ.get("OMNIHERMES_TEST_MODE") == "1":
+        return True
+    try:
+        policy = get_policy()
+        return bool(policy.config.get("debug_logging", False))
+    except Exception:
+        return False
+
+
 def log_hook_telemetry(
     tool: str,
     decision: str,
@@ -96,6 +107,8 @@ def log_hook_telemetry(
     """Log structured hook telemetry line per user requirement:
     tool, decision, state file path, unlocked_until, now, seconds left, away status.
     """
+    if not is_debug_logging_enabled():
+        return
     try:
         DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
@@ -120,6 +133,8 @@ def log_hook_debug(
     return_value: Dict[str, Any],
 ) -> None:
     """Append one debug line to hook_debug.log on every hook invocation. Never logs face data."""
+    if not is_debug_logging_enabled():
+        return
     try:
         DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -384,7 +399,7 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
 
         return_val = {
             "action": "block",
-            "message": f"OmniHermes: unexpected error during verification check ({str(e)}). Action blocked fail-closed.",
+            "message": "OmniHermes: unexpected error during verification check. Action blocked fail-closed.",
         }
         return return_val
 
@@ -433,9 +448,9 @@ def handle_omnihermes_slash_command(raw_args: str = "", **kwargs: Any) -> str:
         try:
             success = run_unlock_interactive(timeout=300, duration=120)
         except Exception as e:
-            return f"OmniHermes: Unlock failed with error: {str(e)}"
+            return "OmniHermes: Biometric unlock failed."
         if success:
-            return "OmniHermes: Workstation unlocked for 120 seconds. Risky commands will execute without prompt."
+            return "OmniHermes: face verified. Risky actions are allowed for the next 120 seconds, then the gate locks again."
         return "OmniHermes: Biometric unlock failed or was cancelled."
 
     elif subcmd == "enroll":
@@ -492,15 +507,16 @@ def register(ctx: Any) -> None:
     # Register lifecycle hooks
     ctx.register_hook("pre_tool_call", on_pre_tool_call)
 
-    # Record registration build timestamp to hook_debug.log
-    try:
-        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        pid = os.getpid()
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(f"[{ts}] [PID:{pid}] OmniHermes plugin v1.0.0 (build 2026-11-07.0848) registered in process\n")
-    except Exception:
-        pass
+    # Record registration build timestamp to hook_debug.log (when debug_logging enabled)
+    if is_debug_logging_enabled():
+        try:
+            DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            pid = os.getpid()
+            with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] [PID:{pid}] OmniHermes plugin v1.0.0 registered in process\n")
+        except Exception:
+            pass
 
     # Secret retrieval if secret_scope available
     if hasattr(ctx, "agent") and hasattr(ctx.agent, "secret_scope"):

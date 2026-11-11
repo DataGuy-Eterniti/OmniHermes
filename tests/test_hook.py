@@ -268,35 +268,42 @@ class TestHookInterceptor(unittest.TestCase):
         """Item 1: unlock -> risky terminal call within 120 s -> allowed; after 120 s -> blocked."""
         from omnihermes.tools import get_unlock_manager
         with patch.object(get_biometrics(), "is_enrolled", return_value=True):
-            # 1. Grant 120s unlock
-            get_unlock_manager().grant_unlock("Elijah", duration_seconds=120)
+            with patch("core.ui.BiometricAuthDialog.run_dialog", return_value={
+                "approved": False,
+                "reason": "TIMEOUT",
+                "message": "Biometric authorization timed out.",
+            }) as mock_dialog:
+                # 1. Grant 120s unlock
+                get_unlock_manager().grant_unlock("Elijah", duration_seconds=120)
 
-            # 2. Risky call within 120s -> allowed
-            res1 = omnihermes_gate.on_pre_tool_call(
-                tool_name="terminal",
-                arguments={"command": "rmdir /s /q testdir"},
-            )
-            self.assertEqual(res1.get("action"), "allow")
+                # 2. Risky call within 120s -> allowed without opening dialog/camera
+                res1 = omnihermes_gate.on_pre_tool_call(
+                    tool_name="terminal",
+                    arguments={"command": "rmdir /s /q testdir"},
+                )
+                self.assertEqual(res1.get("action"), "allow")
+                self.assertFalse(mock_dialog.called)
 
-            # 3. Simulate expiry after 120s
-            mgr = get_unlock_manager()
-            from omnihermes.unlock import write_unlock_state_atomic
-            write_unlock_state_atomic(mgr.state_file, {
-                "unlocked_until": time.time() - 5.0,
-                "verified_at": time.time() - 125.0,
-                "owner": "Elijah",
-            })
+                # 3. Simulate expiry after 120s
+                mgr = get_unlock_manager()
+                from omnihermes.unlock import write_unlock_state_atomic
+                write_unlock_state_atomic(mgr.state_file, {
+                    "unlocked_until": time.time() - 5.0,
+                    "verified_at": time.time() - 125.0,
+                    "owner": "Elijah",
+                })
 
-            # 4. Same risky call after 120s -> blocked
-            res2 = omnihermes_gate.on_pre_tool_call(
-                tool_name="terminal",
-                arguments={"command": "rmdir /s /q testdir"},
-            )
-            self.assertEqual(res2.get("action"), "block")
-            self.assertEqual(
-                res2.get("message"),
-                "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
-            )
+                # 4. Same risky call after 120s -> triggers challenge and blocks
+                res2 = omnihermes_gate.on_pre_tool_call(
+                    tool_name="terminal",
+                    arguments={"command": "rmdir /s /q testdir"},
+                )
+                self.assertTrue(mock_dialog.called)
+                self.assertEqual(res2.get("action"), "block")
+                self.assertEqual(
+                    res2.get("message"),
+                    "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+                )
 
     def test_shared_durable_unlock_file_and_telemetry(self):
         """User Requirement: write an unlock file, call the hook from fresh import path, confirm allows; after expiry blocks."""
@@ -313,11 +320,17 @@ class TestHookInterceptor(unittest.TestCase):
         # 2. Invoke hook as if from a fresh process / fresh import path
         reset_singletons(self.data_dir)
         with patch.object(get_biometrics(), "is_enrolled", return_value=True):
-            res_allow = omnihermes_gate.on_pre_tool_call(
-                tool_name="terminal",
-                arguments={"command": "rmdir /s /q testdir"},
-            )
-            self.assertEqual(res_allow.get("action"), "allow")
+            with patch("core.ui.BiometricAuthDialog.run_dialog", return_value={
+                "approved": False,
+                "reason": "TIMEOUT",
+                "message": "Biometric authorization timed out.",
+            }) as mock_dialog_allow:
+                res_allow = omnihermes_gate.on_pre_tool_call(
+                    tool_name="terminal",
+                    arguments={"command": "rmdir /s /q testdir"},
+                )
+                self.assertEqual(res_allow.get("action"), "allow")
+                self.assertFalse(mock_dialog_allow.called)
 
             # Verify telemetry was logged with all 7 fields
             self.assertTrue(omnihermes_gate.DEBUG_LOG_PATH.exists())
@@ -339,15 +352,21 @@ class TestHookInterceptor(unittest.TestCase):
             reset_singletons(self.data_dir)
 
             with patch.object(get_biometrics(), "is_enrolled", return_value=True):
-                res_block = omnihermes_gate.on_pre_tool_call(
-                    tool_name="terminal",
-                    arguments={"command": "rmdir /s /q testdir"},
-                )
-                self.assertEqual(res_block.get("action"), "block")
-                self.assertEqual(
-                    res_block.get("message"),
-                    "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
-                )
+                with patch("core.ui.BiometricAuthDialog.run_dialog", return_value={
+                    "approved": False,
+                    "reason": "TIMEOUT",
+                    "message": "Biometric authorization timed out.",
+                }) as mock_dialog_block:
+                    res_block = omnihermes_gate.on_pre_tool_call(
+                        tool_name="terminal",
+                        arguments={"command": "rmdir /s /q testdir"},
+                    )
+                    self.assertTrue(mock_dialog_block.called)
+                    self.assertEqual(res_block.get("action"), "block")
+                    self.assertEqual(
+                        res_block.get("message"),
+                        "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
+                    )
 
     def test_unlock_revoked_when_away(self):
         """Stepping away immediately revokes an active unlock window."""
