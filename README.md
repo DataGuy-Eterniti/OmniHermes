@@ -73,6 +73,9 @@ We tested OmniHermes against Hermes directly. When OmniHermes blocked `rmdir /s 
 1. **Default-deny while locked.** No blocklist to dodge; only an explicit allowlist.
 2. **The agent never sees the rules.** The block message is just: *"OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry."*
 3. **The agent can't touch its own gate.** Enrollment and configuration are human-only (CLI / slash command). The model can call only `omnihermes_status` and `omnihermes_unlock`, and unlock still needs a live face.
+4. **The gate's own files are off-limits.** Any tool call that names the plugin's data directory or its state files (unlock state, settings, profile, key) is blocked outright, locked or unlocked, whatever the working directory. The unlock state is also HMAC-signed with a key only that directory holds, so a hand-written or copied file reads as locked, and no state can claim a window longer than the configured one.
+5. **The allowlist can't launch programs.** `env`, `time` and `printenv` aren't on it; `$(…)`, backticks, `<(…)`, `>(…)`, redirects, inline `VAR=…` prefixes and `&` chaining are rejected; `git -c`, `--config-env`, `--exec-path`, `--output` and `--ext-diff` are rejected, and `git branch`/`git remote` only pass when they list.
+6. **The agent doesn't pick the unlock length.** It comes from `unlock_window_seconds`; `omnihermes_unlock` takes no arguments.
 
 ## Install
 
@@ -115,12 +118,12 @@ Settings live under `plugins.entries.omnihermes.settings` in Hermes's config (an
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `unlock_window_seconds` | 120 | How long risky actions stay allowed after a successful check |
-| `min_match_confidence` | 0.363 | SFace cosine threshold |
-| `antispoof_threshold` | 0.60 | MiniFASNet minimum real score |
+| `unlock_window_seconds` | 120 | How long risky actions stay allowed after a successful check (clamped to 10–3600) |
+| `enabled` | true | Turn enforcement on or off (protected files stay off-limits either way) |
+| `mode` | strict | `strict` asks for a face check; `cached_presence` trusts recent presence |
 | `away_timeout_seconds` | 45 | Camera-confirmed absence before the unlock is revoked |
-| `allowlist` | read-only commands | Commands permitted while locked |
-| `guarded_mcp_pattern` | `pay\|charge\|transfer\|refund\|delete\|send` | MCP tool names that are gated |
+| `guarded_tools` | `terminal`, `delegate_task` | Tools that always need verification |
+| `debug_logging` | false | Write hook telemetry to `hook_debug.log` in the data directory |
 
 ## Limitations
 
@@ -146,7 +149,7 @@ Settings live under `plugins.entries.omnihermes.settings` in Hermes's config (an
   - MediaPipe `face_landmarker.task` · 3.8 MB · Google · `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff`
   - MiniFASNetV2-SE `face_antispoof_minifasnet.onnx` · 1.9 MB · suriAI/face-antispoof-onnx (Apache-2.0) · `af2381b88f38769222ed93379e12444e2a50814575de1c46170de570c55a42b6`
 - **Background presence tracking:** optional; periodically checks that the owner is still at the camera and re-locks if not.
-- **Stored data** (all in the Hermes plugin data directory): AES-256-GCM encrypted face embedding, unlock state, settings, and the SHA-256 chained audit log. Nothing outside that directory is read or written.
+- **Stored data** (all in the Hermes plugin data directory, `<hermes home>/plugin-data/omnihermes/`, so each Hermes profile has its own enrollment): AES-256-GCM encrypted face embedding, the signed unlock state, settings, and the SHA-256 chained audit log. The directory is created `0700`; the key, profile and backups `0600`. Nothing outside that directory is read or written. Enrollments made with 1.0.0 in `~/.hermes/omnihermes/` are copied over once on first run.
 
 ## License
 

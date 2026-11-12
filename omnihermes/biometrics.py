@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from omnihermes.crypto import decrypt_payload, encrypt_payload
-from omnihermes.models import ensure_models, get_default_data_dir, assert_not_real_data_dir
+from omnihermes.models import ensure_models, get_default_data_dir, assert_not_real_data_dir, write_private_file
 
 # OpenCV recommended threshold for SFace cosine similarity is 0.363
 DEFAULT_COSINE_THRESHOLD = 0.363
@@ -166,9 +166,7 @@ class BiometricEngine:
         }
 
         enc = encrypt_payload(profile_data, data_dir=self.data_dir)
-        self.profile_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.profile_path, "w", encoding="utf-8") as f:
-            json.dump(enc, f, indent=2)
+        write_private_file(self.profile_path, json.dumps(enc, indent=2).encode("utf-8"))
 
         self._load_profile()
         return profile_data

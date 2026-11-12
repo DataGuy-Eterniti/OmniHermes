@@ -7,16 +7,24 @@ verifying hard-coded SHA-256 checksums before loading.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Dict, Optional
+
+# opencv_zoo is pinned to an exact commit so the URLs can never move under us.
+OPENCV_ZOO_COMMIT = "48b10fa505aeb51fbd127fc60a5c660040e823b7"
+
+PLUGIN_DATA_NAME = "omnihermes"
 
 # Official model definitions with hard-coded SHA-256 checksums
 MODELS: Dict[str, Dict[str, str]] = {
     "yunet": {
         "filename": "face_detection_yunet_2023mar.onnx",
         "url": (
-            "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/"
+            f"https://media.githubusercontent.com/media/opencv/opencv_zoo/{OPENCV_ZOO_COMMIT}/"
             "models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
         ),
         "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
@@ -25,7 +33,7 @@ MODELS: Dict[str, Dict[str, str]] = {
     "sface": {
         "filename": "face_recognition_sface_2021dec.onnx",
         "url": (
-            "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/"
+            f"https://media.githubusercontent.com/media/opencv/opencv_zoo/{OPENCV_ZOO_COMMIT}/"
             "models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
         ),
         "sha256": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
@@ -52,19 +60,116 @@ MODELS: Dict[str, Dict[str, str]] = {
 }
 
 
+def get_hermes_home() -> Optional[Path]:
+    """Return the active Hermes home (profile-aware) if Hermes exposes it, else HERMES_HOME, else None."""
+    for module_name in ("hermes_constants", "hermes_cli.config", "hermes_cli.paths", "hermes_cli"):
+        try:
+            fn = getattr(importlib.import_module(module_name), "get_hermes_home", None)
+            if callable(fn):
+                home = fn()
+                if home:
+                    return Path(home)
+        except Exception:
+            continue
+    env_home = os.environ.get("HERMES_HOME")
+    if env_home:
+        return Path(env_home)
+    return None
+
+
+def _detect_default_hermes_home() -> Optional[Path]:
+    """Default Hermes home when running outside Hermes (CLIs): %LOCALAPPDATA%\\hermes on Windows, else ~/.hermes."""
+    candidates = []
+    local_app = os.environ.get("LOCALAPPDATA")
+    if local_app:
+        candidates.append(Path(local_app) / "hermes")
+    candidates.append(Path.home() / ".hermes")
+    for c in candidates:
+        if c.is_dir():
+            return c
+    return None
+
+
+def _legacy_data_dir() -> Path:
+    """Location used by OmniHermes 1.0.0 (shared across all Hermes profiles)."""
+    return Path.home() / ".hermes" / PLUGIN_DATA_NAME
+
+
+def _real_data_roots() -> list:
+    roots = [Path.home() / ".hermes", Path(__file__).resolve().parent.parent / ".data"]
+    home = get_hermes_home()
+    if home is not None:
+        roots.append(home)
+    return roots
+
+
 def is_real_data_dir(p: Path) -> bool:
-    """Check if path targets the real user .hermes configuration or repo .data cache."""
+    """Check if path targets the real Hermes home, the legacy data dir, or the repo .data cache."""
     try:
         resolved = p.resolve()
-        hermes_home = (Path.home() / ".hermes").resolve()
-        if resolved == hermes_home or hermes_home in resolved.parents or str(resolved).startswith(str(hermes_home)):
-            return True
-        data_cache = (Path(__file__).resolve().parent.parent / ".data").resolve()
-        if resolved == data_cache or data_cache in resolved.parents or str(resolved).startswith(str(data_cache)):
-            return True
+        for root in _real_data_roots():
+            root = root.resolve()
+            if resolved == root or root in resolved.parents or str(resolved).startswith(str(root)):
+                return True
     except Exception:
         pass
     return False
+
+
+def secure_dir(p: Path) -> Path:
+    """Create a directory readable only by the current user (0700 on POSIX)."""
+    p.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(p, 0o700)
+    except OSError:
+        pass
+    return p
+
+
+def write_private_file(path: Path, data: bytes) -> None:
+    """Atomically write a file with mode 0600 (owner read/write only)."""
+    path = Path(path)
+    secure_dir(path.parent)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        try:
+            os.fchmod(fd, 0o600)
+        except (AttributeError, OSError):
+            pass
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _migrate_legacy_data(target: Path) -> None:
+    """One-time copy of a 1.0.0 enrollment from ~/.hermes/omnihermes into the profile's data dir."""
+    legacy = _legacy_data_dir()
+    try:
+        if legacy.resolve() == target.resolve() or not (legacy / "profile.enc").exists():
+            return
+        if (target / "profile.enc").exists():
+            return
+        for name in (".secret_key", "profile.enc", "config.json", "audit.jsonl"):
+            src = legacy / name
+            if src.exists():
+                write_private_file(target / name, src.read_bytes())
+        legacy_models = legacy / "models"
+        if legacy_models.is_dir() and not (target / "models").exists():
+            shutil.move(str(legacy_models), str(target / "models"))
+    except Exception:
+        pass
 
 
 def assert_not_real_data_dir(p: Path, operation: str = "write") -> None:
@@ -98,12 +203,21 @@ def get_default_data_dir() -> Path:
         )
 
     if "HERMES_PLUGIN_DATA_DIR" in os.environ:
-        p = Path(os.environ["HERMES_PLUGIN_DATA_DIR"])
-    elif (Path.home() / ".hermes").exists():
-        p = Path.home() / ".hermes" / "omnihermes"
-    else:
-        p = Path(__file__).resolve().parent.parent / ".data"
-    p.mkdir(parents=True, exist_ok=True)
+        return secure_dir(Path(os.environ["HERMES_PLUGIN_DATA_DIR"]))
+
+    # <hermes home>/plugin-data/omnihermes, resolved the same way inside Hermes and from the CLIs,
+    # so `python -m omnihermes.enroll` writes where the hook reads.
+    p: Optional[Path] = None
+    home = get_hermes_home() or _detect_default_hermes_home()
+    if home is not None:
+        p = home / "plugin-data" / PLUGIN_DATA_NAME
+    if p is None:
+        p = _legacy_data_dir() if (Path.home() / ".hermes").exists() else (
+            Path(__file__).resolve().parent.parent / ".data"
+        )
+
+    secure_dir(p)
+    _migrate_legacy_data(p)
     return p
 
 

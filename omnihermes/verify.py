@@ -64,7 +64,7 @@ def verify_image_identity_only(image_path: Path, data_dir: Optional[Path] = None
 
     if not biometrics.is_enrolled():
         print("[ERROR] No enrolled biometric profile found!")
-        print("Run 'python -m omnihermes.enroll --name \"Elijah\" --primary --replace' to enroll first.")
+        print("Run 'python -m omnihermes.enroll --name \"Your Name\" --primary --replace' to enroll first.")
         return False
 
     owner_info = biometrics.get_owner_info()
@@ -122,7 +122,7 @@ def run_verify(
         print("\n" + "=" * 60)
         print("[ERROR] No enrolled biometric profile found!")
         print("Please enroll first using:")
-        print("    python -m omnihermes.enroll --name \"Elijah\" --primary --replace")
+        print("    python -m omnihermes.enroll --name \"Your Name\" --primary --replace")
         print("=" * 60)
         return False
 
@@ -581,9 +581,10 @@ def main():
 
     if success and args.unlock:
         from omnihermes.unlock import UnlockManager
+        from omnihermes.settings import get_enrolled_owner_name
         manager = UnlockManager(data_dir=data_dir_path)
-        manager.grant_unlock("Elijah", duration_seconds=120)
-        print("\n[OmniHermes] 2-minute execution unlock window granted.")
+        res = manager.grant_unlock(get_enrolled_owner_name(manager.data_dir) or "Owner")
+        print(f"\n[OmniHermes] {res['duration_seconds']}-second execution unlock window granted.")
 
     sys.exit(0 if success else 1)
 

@@ -12,7 +12,7 @@ This guide outlines how to execute the core verification tests for **OmniHermes*
    ```
 2. Ensure your primary profile is enrolled:
    ```bash
-   python -m omnihermes.enroll --name "Elijah" --primary
+   python -m omnihermes.enroll --name "Your Name" --primary
    ```
    *(Note: Enrollment allows up to 5 minutes [300s] with a live HUD countdown timer. You must perform two sequential challenges: first blinking twice, then a randomized head motion).*
 
@@ -40,7 +40,7 @@ $$\text{Liveness} = 0.50 \times \text{MiniFASNet} + 0.30 \times \text{Blink} + 0
 
 ## The 4 Verification Tests
 
-### Test 1: Genuine Owner (Elijah)
+### Test 1: Genuine Owner
 - **Goal:** Verify that the registered owner passes both the SFace facial similarity match, MiniFASNet anti-spoofing, and both active liveness challenges.
 - **Webcam Command:**
    ```bash
@@ -81,7 +81,7 @@ $$\text{Liveness} = 0.50 \times \text{MiniFASNet} + 0.30 \times \text{Blink} + 0
 ---
 
 ### Test 3: Photo Spoof / Screen Replay Attack (CRITICAL SECURITY TEST)
-- **Goal:** Verify that holding up a printed photograph or smartphone screen displaying Elijah's photo is **REJECTED**, defeating presentation and flat rotation attacks.
+- **Goal:** Verify that holding up a printed photograph or smartphone screen displaying the owner's photo is **REJECTED**, defeating presentation and flat rotation attacks.
 - **Webcam Command:**
    ```bash
    python -m omnihermes.verify

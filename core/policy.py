@@ -21,67 +21,135 @@ try:
 except (ImportError, ValueError):
     from .models import get_default_data_dir, assert_not_real_data_dir
 
+# Commands that only read. Deliberately excludes anything that can run another
+# program (env, time, xargs, nohup, ...) or dump secrets (printenv, set).
 READONLY_TERMINAL_COMMANDS = {
     "ls", "dir", "pwd", "cd", "cat", "type", "head", "tail", "echo",
-    "whoami", "where", "which", "git", "date", "time", "hostname", "uname",
-    "clear", "cls", "env", "printenv", "id", "findstr", "grep", "wc"
+    "whoami", "where", "which", "git", "uname",
+    "clear", "cls", "id", "findstr", "grep", "wc",
 }
 
-READONLY_GIT_SUBCOMMANDS = {
-    "status", "log", "diff", "branch", "show", "remote", "version", "help"
+READONLY_GIT_SUBCOMMANDS = {"status", "log", "diff", "show", "version", "help", "branch", "remote"}
+
+# Git options that can run arbitrary programs, change config, or write files.
+_GIT_FORBIDDEN_OPTIONS = ("-c", "--config-env", "--exec-path", "--output", "--ext-diff", "--upload-pack", "--receive-pack")
+
+# `git branch` / `git remote` are only read-only when they list.
+_GIT_LISTING_FLAGS = {
+    "branch": {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "-l", "--show-current", "--no-color", "--color"},
+    "remote": {"-v", "--verbose"},
 }
+
+# Shell constructs that run a nested command or write output.
+_SHELL_EXECUTION_TOKENS = ("$(", "`", "<(", ">(", ">")
+
+# Files the model must never read or write, whatever the current directory is.
+_PROTECTED_FILENAMES = (
+    "unlock_state", "presence_state", ".secret_key", "profile.enc", "profile_backup_",
+)
+_PROTECTED_DIR_MARKERS = (".hermes/omnihermes", "plugin-data/omnihermes", "plugin-data\\omnihermes")
+
+
+def _normalise_for_match(text: str) -> str:
+    # JSON-escaped backslashes and Windows separators both collapse to "/".
+    return text.replace("\\\\", "/").replace("\\", "/").lower()
+
+
+def references_protected_path(arguments: Any, data_dir: Optional[Path] = None) -> bool:
+    """True if a tool call names OmniHermes's own data directory or any of its state files."""
+    try:
+        blob = arguments if isinstance(arguments, str) else json.dumps(arguments, default=str)
+    except Exception:
+        blob = str(arguments)
+    text = _normalise_for_match(blob)
+
+    if any(marker.replace("\\", "/") in text for marker in _PROTECTED_DIR_MARKERS):
+        return True
+    if any(name in text for name in _PROTECTED_FILENAMES):
+        return True
+    candidates = []
+    if data_dir is not None:
+        candidates.append(Path(data_dir))
+    try:
+        candidates.append(get_default_data_dir())
+    except Exception:
+        pass
+    for d in candidates:
+        try:
+            needle = _normalise_for_match(str(Path(d).resolve()))
+            if needle and needle in text:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _git_is_readonly(parts: List[str]) -> bool:
+    args = parts[1:]
+    for a in args:
+        low = a.lower()
+        if any(low == opt or low.startswith(opt + "=") for opt in _GIT_FORBIDDEN_OPTIONS):
+            return False
+    subcmd_idx = None
+    for i, a in enumerate(args):
+        if not a.startswith("-"):
+            subcmd_idx = i
+            break
+    if subcmd_idx is None:
+        return False
+    subcmd = args[subcmd_idx].lower()
+    if subcmd not in READONLY_GIT_SUBCOMMANDS:
+        return False
+    if subcmd in _GIT_LISTING_FLAGS:
+        for a in args[subcmd_idx + 1:]:
+            if a not in _GIT_LISTING_FLAGS[subcmd]:
+                return False
+    return True
 
 
 def is_terminal_command_readonly(cmd: str) -> bool:
     """Evaluate whether a shell command is strictly read-only.
-    
+
     Default-deny: while locked, all terminal calls are HIGH risk unless every
     piped/chained segment is explicitly in the read-only allowlist.
-    Disallows file-writing redirects (> >>), shell execution pipes (| sh), etc.
+    Disallows redirects, command/process substitution, inline env assignments,
+    and anything touching OmniHermes's own data directory.
     """
     if not cmd or not cmd.strip():
         return False
 
     raw = cmd.strip()
 
-    # Reject any write redirection (> or >>)
-    if ">" in raw:
+    if any(tok in raw for tok in _SHELL_EXECUTION_TOKENS):
+        return False
+    if references_protected_path(raw):
         return False
 
-    # Split command into chained/piped segments: &&, ||, ;, |, \n
-    segments = re.split(r"&&|\|\||;|\||\n", raw)
+    # Split into chained/piped segments: &&, ||, ;, |, & (cmd.exe / PowerShell), newlines
+    segments = re.split(r"&&|\|\||;|\||&|\r|\n", raw)
 
     for seg in segments:
         seg = seg.strip()
         if not seg:
             continue
 
-        # Remove leading env vars (e.g. "FOO=1 ls" or "$env:FOO='1';")
         parts = [p.strip("\"'") for p in seg.split() if p.strip("\"'")]
-        while parts and "=" in parts[0] and not parts[0].startswith("-"):
-            parts.pop(0)
-
         if not parts:
             return False
 
-        # Extract base executable name
+        # Inline env assignments (GIT_PAGER=..., PAGER=..., $env:X=...) can make a reader run code.
+        if "=" in parts[0] and not parts[0].startswith("-"):
+            return False
+
         base_cmd = parts[0].replace("\\", "/").split("/")[-1].lower()
         if base_cmd.endswith(".exe"):
             base_cmd = base_cmd[:-4]
 
-        # Check against allowed commands
         if base_cmd not in READONLY_TERMINAL_COMMANDS:
             return False
 
-        # If base command is git, verify the subcommand is read-only
-        if base_cmd == "git":
-            subcmd = None
-            for p in parts[1:]:
-                if not p.startswith("-"):
-                    subcmd = p.lower()
-                    break
-            if not subcmd or subcmd not in READONLY_GIT_SUBCOMMANDS:
-                return False
+        if base_cmd == "git" and not _git_is_readonly(parts):
+            return False
 
     return True
 
@@ -132,6 +200,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         r"(?i)\btruncate\s+table\b",
     ],
     "mcp_sensitive_regex": r"(?i)(?:^|[\W_])(pay|charge|transfer|refund|delete|send)(?:[\W_]|$)",
+    "unlock_window_seconds": 120,
 }
 
 
@@ -177,9 +246,8 @@ class PolicyEngine:
         if config_to_save is not None:
             self.config = config_to_save
         try:
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, indent=2)
+            from omnihermes.models import write_private_file
+            write_private_file(self.config_path, json.dumps(self.config, indent=2).encode("utf-8"))
             return True
         except Exception:
             return False
@@ -203,6 +271,17 @@ class PolicyEngine:
 
     def assess_risk(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Determine if tool execution requires biometric face authorization."""
+        # 0. OmniHermes's own state is off-limits to the model, always: locked or
+        #    unlocked, any cwd, any tool. This check runs even if enforcement is disabled,
+        #    so the model can't re-enable itself out of a disabled gate either.
+        if references_protected_path(arguments, data_dir=self.config_path.parent):
+            return {
+                "requires_biometric": True,
+                "risk_level": "CRITICAL",
+                "protected": True,
+                "reason": "Action targets protected gate state.",
+            }
+
         if not self.config.get("enabled", True):
             return {
                 "requires_biometric": False,

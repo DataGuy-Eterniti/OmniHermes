@@ -1,12 +1,12 @@
 name: omnihermes
-repo: https://github.com/DataGuy-Eterniti/omnihermes
+repo: https://github.com/DataGuy-Eterniti/OmniHermes
 sha: "PLACEHOLDER"
 description: "On-device biometric presence and face-verified authorization gate for Hermes Agent."
 maintainer: DataGuy-Eterniti
 tier: community
 category: tools
 requires_hermes: ">=0.22.7"
-version: "1.0.0"
+version: "1.1.0"
 capabilities:
   provides_tools:
     - omnihermes_status

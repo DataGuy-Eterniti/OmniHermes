@@ -99,7 +99,7 @@ class BiometricAuthDialog:
         root.configure(bg="#0F172A")
 
         owner_info = self.engine.get_owner_info() or {}
-        owner_name = owner_info.get("owner_name", "Elijah")
+        owner_name = owner_info.get("owner_name") or "Owner"
 
         header_frame = tk.Frame(root, bg="#1E293B", padx=16, pady=12)
         header_frame.pack(fill=tk.X)

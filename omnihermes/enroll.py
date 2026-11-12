@@ -9,7 +9,7 @@ Simplified & robust enrollment:
 - Safe profile replacement with automatic timestamped backup via --replace
 
 Usage:
-    python -m omnihermes.enroll --name "Elijah" --primary --replace
+    python -m omnihermes.enroll --name "Your Name" --primary --replace
 """
 
 from __future__ import annotations
@@ -28,7 +28,8 @@ import numpy as np
 from omnihermes.audit import AuditLogger
 from omnihermes.biometrics import BiometricEngine
 from omnihermes.liveness import LivenessSession
-from omnihermes.models import get_default_data_dir
+from omnihermes.models import get_default_data_dir, write_private_file
+from omnihermes.settings import default_owner_name
 from omnihermes.renderer import (
     COLOR_AMBER,
     COLOR_NAVY_BG,
@@ -48,7 +49,7 @@ from omnihermes.renderer import (
 
 
 def run_enrollment(
-    name: str = "Elijah",
+    name: Optional[str] = None,
     is_primary: bool = True,
     replace: bool = False,
     data_dir: Optional[Path] = None,
@@ -56,6 +57,7 @@ def run_enrollment(
     timeout: int = 300,
 ) -> bool:
     """Run interactive biometric enrollment with simplified blink liveness and 8 well-lit samples."""
+    name = (name or "").strip() or default_owner_name()
     data_dir = data_dir or get_default_data_dir()
     biometrics = BiometricEngine(data_dir=data_dir)
     audit = AuditLogger(data_dir=data_dir)
@@ -75,7 +77,7 @@ def run_enrollment(
             ts = time.strftime("%Y%m%d_%H%M%S")
             backup_path = biometrics.profile_path.with_name(f"profile_backup_{ts}.enc")
             try:
-                shutil.copy2(biometrics.profile_path, backup_path)
+                write_private_file(backup_path, biometrics.profile_path.read_bytes())
                 print(f"[OmniHermes] Backed up previous profile to: {backup_path.resolve()}")
             except Exception as e:
                 print(f"[OmniHermes] Warning: Failed to back up existing profile: {e}")
@@ -351,7 +353,7 @@ def run_enrollment(
 
 def main():
     parser = argparse.ArgumentParser(description="OmniHermes - Biometric Enrollment")
-    parser.add_argument("--name", type=str, default="Elijah", help="Name of owner to enroll")
+    parser.add_argument("--name", type=str, default=None, help="Name of owner to enroll (default: your OS user name)")
     parser.add_argument("--primary", action="store_true", default=True, help="Mark as primary workstation owner")
     parser.add_argument("--replace", action="store_true", default=False, help="Back up and overwrite existing profile")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")

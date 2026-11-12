@@ -75,10 +75,26 @@ def get_biometrics() -> BiometricEngine:
     return _biometrics
 
 
+# Settings declared in plugin.yaml config_schema; Hermes's values override config.json in memory.
+_HERMES_SETTING_KEYS = ("enabled", "debug_logging", "mode", "unlock_window_seconds", "away_timeout_seconds", "guarded_tools")
+
+
+def _apply_hermes_settings(policy: PolicyEngine) -> PolicyEngine:
+    try:
+        from omnihermes.settings import _from_hermes
+        for key in _HERMES_SETTING_KEYS:
+            value = _from_hermes(key)
+            if value is not None:
+                policy.config[key] = value
+    except Exception:
+        pass
+    return policy
+
+
 def get_policy() -> PolicyEngine:
     global _policy
     if _policy is None:
-        _policy = PolicyEngine()
+        _policy = _apply_hermes_settings(PolicyEngine())
     return _policy
 
 
@@ -127,7 +143,8 @@ def handle_omnihermes_status(arguments: Dict[str, Any]) -> str:
 
 def handle_omnihermes_enroll(arguments: Dict[str, Any]) -> str:
     """Enroll an owner's face profile using webcam and active liveness."""
-    owner_name = arguments.get("owner_name", "Elijah")
+    from omnihermes.settings import default_owner_name
+    owner_name = arguments.get("owner_name") or default_owner_name()
     is_primary = arguments.get("primary", True)
     test_embedding = arguments.get("test_embedding")
 
@@ -210,23 +227,27 @@ def handle_omnihermes_audit_logs(arguments: Dict[str, Any]) -> str:
 
 
 def handle_omnihermes_unlock(arguments: Dict[str, Any]) -> str:
-    """Unlock workstation for temporary execution window."""
-    duration = int(arguments.get("duration_seconds", 120))
-    timeout = int(arguments.get("timeout_seconds", 300))
-    try:
-        success = run_unlock_interactive(timeout=timeout, duration=duration)
-    except Exception as e:
-        success = False
-        reason = f"Error: {str(e)}"
-    else:
-        reason = "Biometric verification failed or was cancelled."
+    """Ask the owner to verify their face and, on success, open the configured unlock window.
 
-    if success:
+    The model has no say in how long the window lasts: any duration or timeout it
+    passes is ignored. The window length is the unlock_window_seconds setting.
+    """
+    try:
+        granted = run_unlock_interactive(timeout=300)
+    except Exception:
+        granted = None
+
+    if granted:
+        # Older callers/tests may return True; report the window that was actually written.
+        seconds = get_unlock_manager().get_remaining_seconds() if granted is True else int(granted)
         result = {
             "status": "success",
-            "message": "OmniHermes: face verified. Risky actions are allowed for the next 120 seconds, then the gate locks again.",
+            "message": (
+                f"OmniHermes: face verified. Risky actions are allowed for the next {seconds} seconds, "
+                "then the gate locks again."
+            ),
             "unlocked": True,
-            "duration_seconds": duration,
+            "duration_seconds": seconds,
         }
     else:
         result = {

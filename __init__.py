@@ -81,7 +81,32 @@ except (ImportError, ValueError):
         get_unlock_manager,
     )
 
-DEBUG_LOG_PATH = Path.home() / ".hermes" / "omnihermes" / "hook_debug.log"
+try:
+    from omnihermes.settings import bind_hermes_context, get_enrolled_owner_name, default_owner_name
+    from omnihermes.models import get_default_data_dir
+except (ImportError, ValueError):
+    from .omnihermes.settings import bind_hermes_context, get_enrolled_owner_name, default_owner_name
+    from .omnihermes.models import get_default_data_dir
+
+# Only these model-callable tools skip the gate. Anything else named omnihermes_* is gated like any tool.
+_OWN_TOOLS = frozenset({"omnihermes_status", "omnihermes_unlock"})
+
+BLOCK_MESSAGE = "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry."
+PROTECTED_BLOCK_MESSAGE = "OmniHermes: this action is not permitted."
+
+
+# Optional override (tests); by default the log lives in the plugin data directory.
+DEBUG_LOG_PATH: Optional[Path] = None
+
+
+def _debug_log_path() -> Path:
+    if DEBUG_LOG_PATH is not None:
+        Path(DEBUG_LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
+        return Path(DEBUG_LOG_PATH)
+    try:
+        return get_default_data_dir() / "hook_debug.log"
+    except Exception:
+        return Path(os.devnull)
 
 
 def is_debug_logging_enabled() -> bool:
@@ -110,7 +135,7 @@ def log_hook_telemetry(
     if not is_debug_logging_enabled():
         return
     try:
-        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        log_path = _debug_log_path()
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
         pid = os.getpid()
         clean_state_file = str(state_file).replace("\\", "/")
@@ -119,7 +144,7 @@ def log_hook_telemetry(
             f"state_file='{clean_state_file}' unlocked_until={unlocked_until:.2f} "
             f"now={now:.2f} seconds_left={seconds_left:.1f} away_status='{away_status}'\n"
         )
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write(line)
     except Exception:
         pass
@@ -136,7 +161,7 @@ def log_hook_debug(
     if not is_debug_logging_enabled():
         return
     try:
-        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        log_path = _debug_log_path()
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         pid = os.getpid()
         clean_summary = summary.replace("\n", " ").replace("\r", "")[:150]
@@ -147,7 +172,7 @@ def log_hook_debug(
             f"display_detected={display_detected} "
             f"return={json.dumps(return_value, ensure_ascii=False)}\n"
         )
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write(line)
     except Exception:
         pass
@@ -196,7 +221,7 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
     unlocked_until_ts = 0.0
     seconds_left = 0.0
     away_status = "UNKNOWN"
-    state_file_path = Path.home() / ".hermes" / "omnihermes" / "unlock_state.json"
+    state_file_path: Any = "unlock_state.json"
 
     try:
         raw_args = args if args is not None else kwargs.get("arguments") or kwargs.get("function_args")
@@ -215,8 +240,8 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
         display_detected = is_display_detected(kwargs)
         cmd_summary = f"{tool_name} with params: {json.dumps(arguments, ensure_ascii=False)[:120]}"
 
-        # Never intercept our own management tools
-        if tool_name.startswith("omnihermes_") or tool_name.startswith("presence_"):
+        # Never intercept our own two model-callable tools (exact names only)
+        if tool_name in _OWN_TOOLS:
             risk_decision = "MANAGEMENT_TOOL"
             return_val = {"action": "allow"}
             return return_val
@@ -245,6 +270,21 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
         risk_level = risk_assessment["risk_level"]
         risk_decision = f"{risk_level}_RISK"
         action_summary = f"{tool_name} with params: {json.dumps(arguments, ensure_ascii=False)[:200]}"
+
+        # 0. The gate's own files are never touched by the model: no unlock window,
+        #    no cached presence and no face check can authorise it.
+        if risk_assessment.get("protected"):
+            risk_decision = "PROTECTED_STATE"
+            audit.log_event(
+                event_type="INTERCEPT_BLOCKED",
+                user_name="System",
+                tool_name=tool_name,
+                action_summary=action_summary,
+                result="REJECTED_PROTECTED_STATE",
+                details={"risk_level": risk_level},
+            )
+            return_val = {"action": "block", "message": PROTECTED_BLOCK_MESSAGE}
+            return return_val
 
         # 1. Check if running under cron, gateway, or headless environment (no physical display)
         if not display_detected:
@@ -276,7 +316,7 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
                 "action": "block",
                 "message": (
                     f"OmniHermes: action '{tool_name}' ({risk_level} Risk) requires face verification, "
-                    f"but no owner profile is enrolled. Please run 'python -m omnihermes.enroll --name \"Elijah\" --primary' to enroll."
+                    f"but no owner profile is enrolled. The owner should run /omnihermes enroll (or python -m omnihermes.enroll)."
                 ),
             }
             return return_val
@@ -347,7 +387,7 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
         auth_result = dialog.run_dialog()
 
         if auth_result.get("approved"):
-            owner = auth_result.get("owner_name", "Elijah")
+            owner = auth_result.get("owner_name") or get_enrolled_owner_name() or "Owner"
             presence.mark_seen(user_name=owner)
             audit.log_event(
                 event_type="INTERCEPT_APPROVED",
@@ -446,17 +486,23 @@ def handle_omnihermes_slash_command(raw_args: str = "", **kwargs: Any) -> str:
     elif subcmd == "unlock":
         from omnihermes.unlock import run_unlock_interactive
         try:
-            success = run_unlock_interactive(timeout=300, duration=120)
-        except Exception as e:
+            granted = run_unlock_interactive(timeout=300)
+        except Exception:
             return "OmniHermes: Biometric unlock failed."
-        if success:
-            return "OmniHermes: face verified. Risky actions are allowed for the next 120 seconds, then the gate locks again."
+        if granted:
+            return (
+                f"OmniHermes: face verified. Risky actions are allowed for the next {int(granted)} seconds, "
+                "then the gate locks again."
+            )
         return "OmniHermes: Biometric unlock failed or was cancelled."
 
     elif subcmd == "enroll":
         from omnihermes.enroll import run_enrollment
+        # /omnihermes enroll [name]  -> name given, else the currently enrolled name, else the OS user name
+        original = (raw_args or "").strip().split(None, 1)
+        name = original[1].strip() if len(original) > 1 else (get_enrolled_owner_name() or default_owner_name())
         try:
-            success = run_enrollment(name="Elijah", is_primary=True, replace=True)
+            success = run_enrollment(name=name, is_primary=True, replace=True)
         except Exception as e:
             return f"OmniHermes: Enrollment failed: {str(e)}"
         if success:
@@ -468,13 +514,15 @@ def handle_omnihermes_slash_command(raw_args: str = "", **kwargs: Any) -> str:
             "OmniHermes Biometric Security Gate:\n"
             "Usage:\n"
             "  /omnihermes status  - View enrolled profile, unlock window, and audit status\n"
-            "  /omnihermes unlock  - Launch face verification dialog to unlock workstation (2 mins)\n"
-            "  /omnihermes enroll  - Launch camera enrollment to register primary owner\n"
+            "  /omnihermes unlock  - Launch face verification to unlock risky actions for the configured window\n"
+            "  /omnihermes enroll [name] - Launch camera enrollment to register the primary owner\n"
         )
 
 
 def register(ctx: Any) -> None:
     """Hermes Agent plugin registration entrypoint."""
+    # Settings (unlock_window_seconds etc.) are read from Hermes's plugin settings when available.
+    bind_hermes_context(ctx)
     # Register tool handlers exposed to the model (only status and unlock; agent cannot modify its own gate)
     ctx.register_tool(
         name="omnihermes_status",
@@ -495,7 +543,7 @@ def register(ctx: Any) -> None:
             name="omnihermes",
             handler=handle_omnihermes_slash_command,
             description="OmniHermes biometric security gate commands",
-            args_hint="[status|unlock|enroll]",
+            args_hint="[status|unlock|enroll [name]]",
         )
         ctx.register_command(
             name="presence",
@@ -510,11 +558,10 @@ def register(ctx: Any) -> None:
     # Record registration build timestamp to hook_debug.log (when debug_logging enabled)
     if is_debug_logging_enabled():
         try:
-            DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
             ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             pid = os.getpid()
-            with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-                f.write(f"[{ts}] [PID:{pid}] OmniHermes plugin v1.0.0 registered in process\n")
+            with open(_debug_log_path(), "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] [PID:{pid}] OmniHermes plugin v1.1.0 registered in process\n")
         except Exception:
             pass
 

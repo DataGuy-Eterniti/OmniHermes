@@ -14,11 +14,15 @@ class TestPolicyEngine(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         os.environ["HERMES_PLUGIN_DATA_DIR"] = self.temp_dir.name
         self.cfg_file = Path(self.temp_dir.name) / "test_config.json"
-        self.engine = PolicyEngine(config_path=self.cfg_file, project_root=Path(self.temp_dir.name))
+        # Project and plugin data dir are different folders, as they are in real use.
+        self._project_tmp = tempfile.TemporaryDirectory()
+        self.project_dir = Path(self._project_tmp.name)
+        self.engine = PolicyEngine(config_path=self.cfg_file, project_root=self.project_dir)
 
     def tearDown(self):
         os.environ.pop("HERMES_PLUGIN_DATA_DIR", None)
         self.temp_dir.cleanup()
+        self._project_tmp.cleanup()
 
     def test_benign_tool_not_guarded(self):
         assessment = self.engine.assess_risk("read_file", {"path": "README.md"})
@@ -131,7 +135,7 @@ class TestPolicyEngine(unittest.TestCase):
 
     def test_write_file_inside_vs_outside_project(self):
         # Inside project
-        inside_path = str(Path(self.temp_dir.name) / "src" / "index.js")
+        inside_path = str(self.project_dir / "src" / "index.js")
         res_inside = self.engine.assess_risk("write_file", {"path": inside_path})
         self.assertFalse(res_inside["requires_biometric"])
 

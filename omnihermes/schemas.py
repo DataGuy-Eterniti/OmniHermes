@@ -5,7 +5,7 @@ These schemas define the tools exposed by OmniHermes to the Hermes LLM runtime.
 
 OMNIHERMES_STATUS_SCHEMA = {
     "name": "omnihermes_status",
-    "description": "Check the status of the OmniHermes security gate, including enrolled profile, desk presence, policy configuration, and cryptographic audit integrity.",
+    "description": "Check whether the OmniHermes security gate is locked or unlocked, how many seconds remain, and who the enrolled owner is.",
     "parameters": {
         "type": "object",
         "properties": {},
@@ -21,7 +21,7 @@ OMNIHERMES_ENROLL_SCHEMA = {
         "properties": {
             "owner_name": {
                 "type": "string",
-                "description": "Name of the primary workstation owner to enroll (e.g. 'Elijah').",
+                "description": "Name of the primary workstation owner to enroll .",
             },
             "primary": {
                 "type": "boolean",
@@ -82,15 +82,13 @@ OMNIHERMES_AUDIT_LOGS_SCHEMA = {
 
 OMNIHERMES_UNLOCK_SCHEMA = {
     "name": "omnihermes_unlock",
-    "description": "Launch interactive face verification in a relaxed 5-minute window and grant a temporary execution window (default 2 mins) for high-risk operations.",
+    "description": (
+        "Ask the workstation owner to verify their face at the webcam. On success, high-risk "
+        "actions are allowed for the owner's configured unlock window. Takes no arguments."
+    ),
     "parameters": {
         "type": "object",
-        "properties": {
-            "duration_seconds": {
-                "type": "integer",
-                "description": "Duration in seconds for the unlock window upon successful verification (default: 120s).",
-            },
-        },
+        "properties": {},
         "required": [],
     },
 }

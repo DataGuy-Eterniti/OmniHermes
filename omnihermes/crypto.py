@@ -6,6 +6,8 @@ No raw face images are ever stored on disk. Only encrypted 128-d vectors.
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -14,7 +16,7 @@ from typing import Any, Dict, Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
-from omnihermes.models import get_default_data_dir, assert_not_real_data_dir
+from omnihermes.models import get_default_data_dir, assert_not_real_data_dir, write_private_file
 
 
 def derive_key(salt: bytes, user_passphrase: str = "") -> bytes:
@@ -48,6 +50,10 @@ def get_or_generate_key(data_dir: Optional[Path] = None, explicit_key: Optional[
     base_dir = data_dir or get_default_data_dir()
     key_file = base_dir / ".secret_key"
     if key_file.exists():
+        try:
+            os.chmod(key_file, 0o600)  # tighten keys created by older versions
+        except OSError:
+            pass
         key_data = key_file.read_bytes()
         if len(key_data) == 32:
             return key_data
@@ -65,10 +71,30 @@ def get_or_generate_key(data_dir: Optional[Path] = None, explicit_key: Optional[
     # Generate new random 256-bit key
     assert_not_real_data_dir(key_file, operation="generate_secret_key")
     new_key = os.urandom(32)
-    key_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(key_file, "wb") as f:
-        f.write(new_key)
+    write_private_file(key_file, new_key)
     return new_key
+
+
+def _state_mac_key(data_dir: Optional[Path] = None) -> bytes:
+    """Derive a dedicated HMAC key for signing gate state from the local secret key."""
+    base = get_or_generate_key(data_dir=data_dir)
+    return hmac.new(base, b"omnihermes/unlock-state/v2", hashlib.sha256).digest()
+
+
+def sign_state(fields: Dict[str, Any], data_dir: Optional[Path] = None) -> str:
+    """Return a hex HMAC-SHA256 over the canonical JSON of the given fields."""
+    payload = json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(_state_mac_key(data_dir), payload, hashlib.sha256).hexdigest()
+
+
+def verify_state(fields: Dict[str, Any], signature: str, data_dir: Optional[Path] = None) -> bool:
+    """Constant-time check that a state signature was produced with the local key."""
+    if not signature or not isinstance(signature, str):
+        return False
+    try:
+        return hmac.compare_digest(sign_state(fields, data_dir=data_dir), signature)
+    except Exception:
+        return False
 
 
 def encrypt_payload(
