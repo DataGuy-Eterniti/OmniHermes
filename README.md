@@ -5,7 +5,7 @@
 <p align="center"><b>Face-verified approval for Hermes Agent. Before the agent deletes, runs or pays, it has to see the real owner, live, at the webcam.</b></p>
 
 <p align="center">
-  <a href="YOUR_X_POST_URL">▶️ Watch the 90-second demo</a> ·
+  <a href="https://x.com/AdenijiEt90931/status/2120616405708218762?a=MIQe8743k3KgNG9v-Bs&s=20">▶️ Watch the 90-second demo</a> ·
   <a href="https://github.com/NousResearch/hermes-agent/pull/153906">Catalog PR</a> ·
   <a href="TESTING.md">Testing guide</a> ·
   <a href="#install">Install</a>
