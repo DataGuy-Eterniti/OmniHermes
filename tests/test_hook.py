@@ -86,7 +86,7 @@ class TestHookInterceptor(unittest.TestCase):
                     args={"command": cmd1},
                 )
                 self.assertEqual(res1.get("action"), "block")
-                self.assertTrue(mock_dialog.called)
+                self.assertFalse(mock_dialog.called)  # camera is never opened inside a tool call
 
                 # Reset mock
                 mock_dialog.reset_mock()
@@ -97,7 +97,7 @@ class TestHookInterceptor(unittest.TestCase):
                     args={"command": cmd2},
                 )
                 self.assertEqual(res2.get("action"), "block")
-                self.assertTrue(mock_dialog.called)
+                self.assertFalse(mock_dialog.called)  # camera is never opened inside a tool call
 
     def test_default_to_safe_on_empty_terminal_args(self):
         """Task 5: Empty or missing arguments to terminal must fail closed and trigger guard."""
@@ -112,7 +112,7 @@ class TestHookInterceptor(unittest.TestCase):
                     args={},
                 )
                 self.assertEqual(res.get("action"), "block")
-                self.assertTrue(mock_dialog.called)
+                self.assertFalse(mock_dialog.called)  # camera is never opened inside a tool call
 
     def test_omnihermes_self_tools_never_blocked(self):
         """Live Test: OmniHermes management tools should never be blocked."""
@@ -243,13 +243,14 @@ class TestHookInterceptor(unittest.TestCase):
     def test_hook_blocks_on_ui_dialog_exception(self):
         """Task 3d: Blocks fail-closed if UI dialog itself throws an unexpected exception."""
         with patch.object(get_biometrics(), "is_enrolled", return_value=True):
-            with patch("core.ui.BiometricAuthDialog.run_dialog", side_effect=Exception("Tkinter X11 display crash")):
+            with patch("core.ui.BiometricAuthDialog.run_dialog", side_effect=Exception("Tkinter X11 display crash")) as dlg:
                 result = omnihermes_gate.on_pre_tool_call(
                     tool_name="terminal",
                     arguments={"command": "del /s junk"},
                 )
                 self.assertEqual(result.get("action"), "block")
-                self.assertIn("fail-closed", result.get("message", "").lower())
+                self.assertFalse(dlg.called)  # the hook never opens UI, so a UI crash can't affect it
+                self.assertIn("/omnihermes unlock", result.get("message", ""))
 
     def test_active_unlock_window_allows_action(self):
         """An active unlock window allows high-risk commands without camera challenge."""
@@ -298,7 +299,7 @@ class TestHookInterceptor(unittest.TestCase):
                     tool_name="terminal",
                     arguments={"command": "rmdir /s /q testdir"},
                 )
-                self.assertTrue(mock_dialog.called)
+                self.assertFalse(mock_dialog.called)  # camera is never opened inside a tool call
                 self.assertEqual(res2.get("action"), "block")
                 self.assertEqual(
                     res2.get("message"),
@@ -361,7 +362,7 @@ class TestHookInterceptor(unittest.TestCase):
                         tool_name="terminal",
                         arguments={"command": "rmdir /s /q testdir"},
                     )
-                    self.assertTrue(mock_dialog_block.called)
+                    self.assertFalse(mock_dialog_block.called)  # camera is never opened inside a tool call
                     self.assertEqual(res_block.get("action"), "block")
                     self.assertEqual(
                         res_block.get("message"),

@@ -160,6 +160,25 @@ class TestUnlockStateCannotBeForged(_GateTestBase):
         self.assertEqual(self.hook("terminal", {"command": "rm -rf build"})["action"], "allow")
 
 
+class TestLockedHookIsFast(_GateTestBase):
+    """Live finding: an in-hook camera dialog outlasted Hermes's hook timeout and stalled every later call."""
+
+    def test_locked_risky_call_blocks_immediately_without_ui(self):
+        with patch("core.ui.BiometricAuthDialog.run_dialog") as dlg:
+            start = time.monotonic()
+            res = omnihermes_gate.on_pre_tool_call(tool_name="terminal", args={"command": "rmdir /s /q junk"})
+            elapsed = time.monotonic() - start
+        self.assertEqual(res["action"], "block")
+        self.assertIn("/omnihermes unlock", res["message"])
+        self.assertFalse(dlg.called)
+        self.assertLess(elapsed, 2.0)
+
+    def test_benign_calls_unaffected_after_a_block(self):
+        omnihermes_gate.on_pre_tool_call(tool_name="terminal", args={"command": "rm -rf junk"})
+        for cmd in ("echo test", "ls"):
+            self.assertEqual(omnihermes_gate.on_pre_tool_call(tool_name="terminal", args={"command": cmd})["action"], "allow")
+
+
 class TestReadOnlyAllowlist(unittest.TestCase):
     """Review point 2."""
 

@@ -12,5 +12,6 @@ Addresses the Hermes plugin-catalog review of 1.0.0 (`fbeeabf`).
 - **No hard-coded owner.** Names come from the enrolled profile, the `/omnihermes enroll [name]` argument, or the OS user name.
 - Model URLs for opencv_zoo pinned to commit `48b10fa505aeb51fbd127fc60a5c660040e823b7` (same SHA-256 checksums).
 - Data directory follows the active Hermes profile (`get_hermes_home()`, or `HERMES_HOME`, or the default Hermes home when run from the CLIs), with a one-time copy of a 1.0.0 enrollment.
+- **The hook never opens the camera.** A locked risky call is blocked immediately with the unlock instruction; verification happens only through `/omnihermes unlock`. Previously the in-hook dialog (model loading + window) could outlast Hermes's hook timeout, after which Hermes refused every later tool call, even `echo`.
 - Only the two registered tools (`omnihermes_status`, `omnihermes_unlock`) bypass the hook, by exact name.
 - New regression suite `tests/test_review_fixes.py` (25 tests; 20 fail on 1.0.0).

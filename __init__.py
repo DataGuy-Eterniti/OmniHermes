@@ -371,57 +371,20 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, task_id: Optional[st
             return_val = {"action": "allow"}
             return return_val
 
-        # 6. Launch Biometric Challenge Dialog with strict internal timeout (22s < 25s)
-        try:
-            from .core.ui import BiometricAuthDialog
-        except (ImportError, ValueError):
-            from core.ui import BiometricAuthDialog
-
-        dialog = BiometricAuthDialog(
+        # 6. Locked: block immediately. The camera is never opened from inside a tool call:
+        #    loading models and showing a window can outlast Hermes's hook timeout (and the
+        #    gateway process may have no visible desktop), which would stall every later call.
+        #    The owner verifies with /omnihermes unlock, which grants the configured window.
+        audit.log_event(
+            event_type="INTERCEPT_BLOCKED",
+            user_name="System",
             tool_name=tool_name,
             action_summary=action_summary,
-            risk_level=risk_level,
-            engine=biometrics,
-            timeout_seconds=22,
+            result="REJECTED_LOCKED",
+            details={"risk_level": risk_level},
         )
-        auth_result = dialog.run_dialog()
-
-        if auth_result.get("approved"):
-            owner = auth_result.get("owner_name") or get_enrolled_owner_name() or "Owner"
-            presence.mark_seen(user_name=owner)
-            audit.log_event(
-                event_type="INTERCEPT_APPROVED",
-                user_name=owner,
-                tool_name=tool_name,
-                action_summary=action_summary,
-                result="APPROVED",
-                similarity_score=auth_result.get("confidence", 1.0),
-                liveness_score=auth_result.get("liveness_score", 1.0),
-                details={"risk_level": risk_level},
-            )
-            return_val = {"action": "allow"}
-            return return_val
-        else:
-            reason = auth_result.get("reason", "VERIFICATION_FAILED")
-            msg = auth_result.get("message", "Biometric verification failed.")
-
-            audit.log_event(
-                event_type="INTERCEPT_REJECTED",
-                user_name="Candidate",
-                tool_name=tool_name,
-                action_summary=action_summary,
-                result=reason,
-                similarity_score=auth_result.get("confidence", 0.0),
-                liveness_score=auth_result.get("liveness_score", 0.0),
-                details={"risk_level": risk_level, "message": msg},
-            )
-
-            # If denied, timed out, or user cancelled, guide user to unlock flow
-            return_val = {
-                "action": "block",
-                "message": "OmniHermes: this action needs face verification. Run /omnihermes unlock, then ask me to retry.",
-            }
-            return return_val
+        return_val = {"action": "block", "message": BLOCK_MESSAGE}
+        return return_val
 
     except Exception as e:
         # Ultimate fail-closed catch-all
